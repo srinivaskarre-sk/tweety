@@ -232,8 +232,8 @@ class ThreadGenerator {
     const context = contextInput.value.trim();
     const refinedIntention = refinedIntentionInput.value.trim();
 
-    // Show loading state
-    this.setButtonLoading(generateBtn, true, 'Generating... ⚡');
+    // Show enhanced loading state with web search indication
+    this.setButtonLoading(generateBtn, true, 'Researching latest info... 🔍');
     this.hideError();
 
     try {
@@ -252,6 +252,9 @@ class ThreadGenerator {
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
+
+      // Update loading text to show thread generation phase
+      this.setButtonLoading(generateBtn, true, 'Generating enhanced thread... ⚡');
 
       const data: { thread: ThreadResponse } = await response.json();
       this.currentThread = data.thread.tweets;

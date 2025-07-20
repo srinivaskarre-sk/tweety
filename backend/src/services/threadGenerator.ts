@@ -21,6 +21,12 @@ export interface IntentionAnalysis {
   fallbackToOriginal?: boolean;
 }
 
+export interface SearchResult {
+  title: string;
+  snippet: string;
+  url: string;
+}
+
 export class ThreadGenerator {
   private ollama: Ollama;
 
@@ -123,14 +129,18 @@ Generate exactly 6 tweets for "${cleanTopic}". Each tweet must start with "TWEET
           tweetContent = trimmedLine;
         }
         
-        // Clean up the content by removing markdown and extra formatting
+        // Enhanced cleaning for markdown and formatting issues
         tweetContent = tweetContent
           .replace(/\*\*/g, '') // Remove markdown bold
+          .replace(/\*/g, '') // Remove markdown italic
+          .replace(/`/g, '') // Remove code formatting
           .replace(/\n\n\*\*TWEET:.*$/g, '') // Remove trailing TWEET markers
           .replace(/\n+/g, ' ') // Replace newlines with spaces
+          .replace(/\s+/g, ' ') // Normalize multiple spaces
           .trim();
         
-        if (tweetContent && tweetContent.length > 10 && tweetContent.length <= 280) {
+        // Validate tweet content
+        if (tweetContent && tweetContent.length > 10 && tweetContent.length <= 320) {
           tweets.push({
             id: `tweet-${tweetCounter}`,
             content: tweetContent,
@@ -139,24 +149,66 @@ Generate exactly 6 tweets for "${cleanTopic}". Each tweet must start with "TWEET
             totalTweets: 0 // Will be updated after parsing all tweets
           });
           tweetCounter++;
+          
+          // Stop after 6 tweets
+          if (tweetCounter > 6) break;
         }
       }
     }
 
-    // If still no tweets found, try splitting by common patterns
+    // Enhanced fallback parsing if no tweets found with TWEET: prefix
     if (tweets.length === 0) {
-      const patterns = [/\d+\/\d+/g, /Tweet \d+:/gi, /\d+\./g];
+      console.log('No tweets found with TWEET: prefix, trying alternative parsing...');
+      
+      // Try to split by numbers like "1/6", "2/6", etc.
+      const tweetPattern = /(\d+\/\d+.*?)(?=\d+\/\d+|$)/gs;
+      const matches = content.match(tweetPattern);
+      
+      if (matches && matches.length > 0) {
+        matches.forEach((match, index) => {
+          if (index < 6) { // Limit to 6 tweets
+            let cleanMatch = match.trim()
+              .replace(/\*\*/g, '')
+              .replace(/\*/g, '')
+              .replace(/`/g, '')
+              .replace(/\s+/g, ' ')
+              .trim();
+            
+            if (cleanMatch.length > 10 && cleanMatch.length <= 320) {
+              tweets.push({
+                id: `tweet-${index + 1}`,
+                content: cleanMatch,
+                characterCount: cleanMatch.length,
+                position: index + 1,
+                totalTweets: 0
+              });
+            }
+          }
+        });
+      }
+    }
+
+    // Final fallback - split by common patterns
+    if (tweets.length === 0) {
+      console.log('Alternative parsing failed, using pattern-based splitting...');
+      const patterns = [/\d+\/6/g, /Tweet \d+:/gi, /\d+\./g];
       
       for (const pattern of patterns) {
-        const matches = content.split(pattern);
-        if (matches.length > 1) {
-          for (let i = 1; i < matches.length && i <= 6; i++) {
-            const match = matches[i].trim();
-            if (match.length > 10 && match.length <= 280) {
+        const parts = content.split(pattern);
+        if (parts.length > 1) {
+          for (let i = 1; i < Math.min(parts.length, 7); i++) {
+            const part = parts[i].trim()
+              .replace(/\*\*/g, '')
+              .replace(/\*/g, '')
+              .replace(/`/g, '')
+              .replace(/\s+/g, ' ')
+              .trim();
+            
+            if (part.length > 10 && part.length <= 320) {
               tweets.push({
                 id: `tweet-${i}`,
-                content: `${i}/6 ${match}`,
-                characterCount: `${i}/6 ${match}`.length,
+                content: `${i}/6 ${part}`,
+                characterCount: `${i}/6 ${part}`.length,
                 position: i,
                 totalTweets: 0
               });
@@ -168,12 +220,14 @@ Generate exactly 6 tweets for "${cleanTopic}". Each tweet must start with "TWEET
     }
 
     // Update totalTweets for all tweets
+    const finalTweetCount = Math.max(tweets.length, 1);
     tweets.forEach(tweet => {
-      tweet.totalTweets = tweets.length;
+      tweet.totalTweets = finalTweetCount;
     });
 
-    // Enhanced fallback with actual content generation
+    // Ultimate fallback with actual content generation
     if (tweets.length === 0) {
+      console.log('All parsing failed, creating fallback tweet');
       const cleanTopic = topic.replace(/^I want to write about /i, '').trim();
       tweets.push({
         id: 'tweet-1',
@@ -185,7 +239,11 @@ Generate exactly 6 tweets for "${cleanTopic}". Each tweet must start with "TWEET
       tweets[0].characterCount = tweets[0].content.length;
     }
 
-    console.log('Parsed tweets:', tweets.length);
+    console.log(`Successfully parsed ${tweets.length} tweets`);
+    tweets.forEach((tweet, index) => {
+      console.log(`Tweet ${index + 1}: "${tweet.content.substring(0, 50)}..."`);
+    });
+    
     return tweets;
   }
 
@@ -310,16 +368,24 @@ Respond with valid JSON only:`;
 
   // Generate thread with enhanced context from intention analysis
   async generateThreadWithContext(topic: string, context?: string, refinedIntention?: string): Promise<ThreadResponse> {
-    const enhancedContext = this.buildEnhancedContext(topic, context, refinedIntention);
-    const prompt = this.buildEnhancedPrompt(topic, enhancedContext);
-    
     try {
+      // Perform web search for additional context
+      console.log('Performing web search for topic:', topic);
+      const searchResults = await this.searchWeb(topic, refinedIntention);
+      
+      const enhancedContext = this.buildEnhancedContext(topic, context, refinedIntention, searchResults);
+      const prompt = this.buildEnhancedPrompt(topic, enhancedContext);
+      
+      console.log('=== ENHANCED PROMPT ===');
+      console.log(prompt.substring(0, 500) + '...');
+      console.log('=======================');
+      
       const response = await this.ollama.chat({
         model: 'llama3.2',
         messages: [
           {
             role: 'system',
-            content: 'You are an expert technical content creator specializing in database systems, SQL, and data engineering. Generate engaging Twitter threads with practical examples, code snippets, and actionable insights for database professionals.'
+            content: 'You are an expert technical content creator specializing in database systems, SQL, and data engineering. You MUST generate exactly 6 tweets, each starting with "TWEET:" and numbered 1/6, 2/6, etc. Follow the format requirements precisely.'
           },
           {
             role: 'user',
@@ -330,7 +396,15 @@ Respond with valid JSON only:`;
       });
 
       const threadContent = response.message.content;
+      console.log('=== RAW LLM RESPONSE ===');
+      console.log(threadContent);
+      console.log('========================');
+      
       const tweets = this.parseThreadContent(threadContent, topic);
+      
+      if (tweets.length < 6) {
+        console.warn(`Only parsed ${tweets.length} tweets instead of 6. Attempting to fix...`);
+      }
       
       return {
         tweets,
@@ -343,7 +417,87 @@ Respond with valid JSON only:`;
     }
   }
 
-  private buildEnhancedContext(topic: string, context?: string, refinedIntention?: string): string {
+  // Simple web search implementation
+  private async searchWeb(topic: string, refinedIntention?: string): Promise<SearchResult[]> {
+    try {
+      // Create search query focused on database topics
+      const searchQuery = this.buildSearchQuery(topic, refinedIntention);
+      console.log('Search query:', searchQuery);
+      
+      // Use DuckDuckGo instant answer API (simple and free)
+      const searchUrl = `https://api.duckduckgo.com/?q=${encodeURIComponent(searchQuery)}&format=json&pretty=1&no_html=1&skip_disambig=1`;
+      
+      // Use AbortController for timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 8000);
+      
+      const response = await fetch(searchUrl, {
+        headers: {
+          'User-Agent': 'TweetyThreadGenerator/1.0',
+          'Accept': 'application/json'
+        },
+        signal: controller.signal
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        console.warn(`Search API returned ${response.status}, falling back to no search results`);
+        return [];
+      }
+
+      const data = await response.json() as any;
+      
+      // Extract relevant results
+      const results: SearchResult[] = [];
+      
+      // DuckDuckGo instant answer
+      if (data.Abstract && data.Abstract.length > 20) {
+        results.push({
+          title: data.Heading || 'Database Overview',
+          snippet: data.Abstract.substring(0, 300) + (data.Abstract.length > 300 ? '...' : ''),
+          url: data.AbstractURL || ''
+        });
+      }
+      
+      // Related topics
+      if (data.RelatedTopics && Array.isArray(data.RelatedTopics)) {
+        data.RelatedTopics.slice(0, 3).forEach((topic: any) => {
+          if (topic.Text && topic.Text.length > 20) {
+            const snippet = topic.Text.substring(0, 200) + (topic.Text.length > 200 ? '...' : '');
+            results.push({
+              title: topic.Text.split(' - ')[0] || 'Related Database Topic',
+              snippet: snippet,
+              url: topic.FirstURL || ''
+            });
+          }
+        });
+      }
+      
+      console.log(`Found ${results.length} search results for database topic`);
+      return results.slice(0, 4); // Limit to top 4 results
+      
+    } catch (error) {
+      console.warn('Web search failed, continuing without search results:', error.message);
+      // Return empty results - graceful fallback, no error thrown
+      return [];
+    }
+  }
+
+  private buildSearchQuery(topic: string, refinedIntention?: string): string {
+    const cleanTopic = topic.replace(/^I want to write about /i, '').trim();
+    
+    // Add database-specific terms to improve search relevance
+    const databaseTerms = 'database SQL best practices examples tutorial 2024';
+    
+    if (refinedIntention && refinedIntention.length > 0) {
+      return `${cleanTopic} ${refinedIntention} ${databaseTerms}`;
+    }
+    
+    return `${cleanTopic} ${databaseTerms}`;
+  }
+
+  private buildEnhancedContext(topic: string, context?: string, refinedIntention?: string, searchResults?: SearchResult[]): string {
     let enhancedContext = '';
     
     if (refinedIntention) {
@@ -354,7 +508,16 @@ Respond with valid JSON only:`;
       enhancedContext += `Additional context: ${context}\n`;
     }
     
-    enhancedContext += `Focus: Database systems, SQL queries, performance optimization, data modeling, and practical implementation examples.`;
+    // Add search results context
+    if (searchResults && searchResults.length > 0) {
+      enhancedContext += `\nCurrent web research findings:\n`;
+      searchResults.forEach((result, index) => {
+        enhancedContext += `${index + 1}. ${result.title}: ${result.snippet}\n`;
+      });
+      enhancedContext += '\n';
+    }
+    
+    enhancedContext += `Focus: Database systems, SQL queries, performance optimization, data modeling, and practical implementation examples with current best practices.`;
     
     return enhancedContext;
   }
@@ -367,34 +530,31 @@ Respond with valid JSON only:`;
 ENHANCED CONTEXT:
 ${enhancedContext}
 
-STRICT REQUIREMENTS:
-- Generate exactly 6 tweets for database/SQL professionals
-- Each tweet MUST be under 280 characters
+CRITICAL FORMAT REQUIREMENTS - FOLLOW EXACTLY:
+1. Generate EXACTLY 6 tweets, no more, no less
+2. Each tweet MUST start with "TWEET:" (all caps)
+3. Each tweet MUST be numbered 1/6, 2/6, 3/6, 4/6, 5/6, 6/6
+4. Each tweet MUST be under 280 characters
+5. NO markdown formatting (no **, *, etc.)
+6. Each tweet on its own line
+7. Include practical SQL examples and current best practices
+
+CONTENT REQUIREMENTS:
+- Incorporate current web research findings and latest best practices from the context above
 - Include practical SQL examples, database concepts, and real-world scenarios
 - Use engaging emojis (🔥, ⚡, 💡, 🧵, 📊, 🔧, 🔒, 💾, ⚖️, 🎯, 📈)
 - Focus on actionable insights and practical implementation
 - Target audience: Database administrators, developers, data engineers
-- Number each tweet (1/6, 2/6, etc.)
+- Reference current trends and up-to-date information when available
 
-CONTENT FOCUS:
-- Database performance and optimization
-- SQL best practices and techniques
-- Data modeling and schema design
-- Security and compliance considerations
-- Real-world implementation examples
-- Common pitfalls and solutions
+EXACT FORMAT EXAMPLE:
+TWEET: 1/6 🧵 Database isolation levels explained: Your secret weapon against data corruption in high-concurrency apps ⚡ Let's explore the latest approaches that industry experts recommend 🔒
+TWEET: 2/6 💡 READ UNCOMMITTED: Fastest but dangerous! Allows dirty reads. Recent studies show 40% performance boost but high risk. Use only for analytics: SELECT * FROM orders WHERE status = 'pending';
+TWEET: 3/6 ✅ READ COMMITTED: Default for most databases. Prevents dirty reads, allows phantom reads. Good balance for OLTP systems. PostgreSQL and MySQL default. Perfect for e-commerce applications 📊
+TWEET: 4/6 🔒 REPEATABLE READ: Locks read data until transaction ends. Prevents dirty and non-repeatable reads. Higher consistency but potential deadlocks. Example: START TRANSACTION; SELECT * FROM accounts WHERE id = 1;
+TWEET: 5/6 🎯 SERIALIZABLE: Highest isolation level. Complete transaction isolation. Slowest performance but ACID compliant. Use for financial systems: SET TRANSACTION ISOLATION LEVEL SERIALIZABLE;
+TWEET: 6/6 🚀 Best practices 2024: Use READ COMMITTED for most apps, SERIALIZABLE for critical data, monitor lock contention with pg_stat_activity. Choose based on consistency vs performance needs 📈 #DatabasePerformance
 
-FORMAT REQUIREMENTS:
-- Start each tweet with "TWEET:"
-- NO markdown formatting (**, *, etc.)
-- Each tweet on a single line
-- Include practical code examples where relevant
-- Balance technical depth with accessibility
-
-Example structure for database isolation levels:
-TWEET: 1/6 🧵 Database isolation levels explained: Your secret weapon against data corruption in high-concurrency apps ⚡ Let's explore READ UNCOMMITTED, READ COMMITTED, REPEATABLE READ, and SERIALIZABLE 🔒
-TWEET: 2/6 💡 READ UNCOMMITTED (Level 0): Fastest but dangerous! ⚠️ Allows dirty reads - you can see uncommitted changes. Perfect for analytics where speed > accuracy. Example: SELECT * FROM orders WHERE status = 'processing';
-
-Generate exactly 6 tweets for "${cleanTopic}". Each tweet must start with "TWEET:" and be on its own line:`;
+Now generate exactly 6 tweets for "${cleanTopic}" following this EXACT format:`;
   }
 } 
