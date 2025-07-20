@@ -1,8 +1,14 @@
+import 'dotenv/config';
 import { createServer, IncomingMessage, ServerResponse } from 'http';
 import { parse } from 'url';
 import { ThreadGenerator } from './services/threadGenerator';
 
 const PORT = process.env.PORT || 3001;
+
+console.log('🚀 Starting Tweety Backend Server...');
+console.log(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
+console.log(`🤖 LLM Provider: ${process.env.LLM_PROVIDER || 'llama (default)'}`);
+console.log(`🔗 Port: ${PORT}`);
 
 // CORS headers
 const setCorsHeaders = (res: ServerResponse) => {

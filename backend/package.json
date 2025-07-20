@@ -10,6 +10,8 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.56.0",
+    "dotenv": "^17.2.0",
     "node-fetch": "^3.3.2",
     "ollama": "^0.5.0"
   },

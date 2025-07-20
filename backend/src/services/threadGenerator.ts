@@ -1,4 +1,4 @@
-import { Ollama } from 'ollama';
+import { LLMServiceFactory, LLMService } from './llmService';
 import { WebSearchService, SearchResult } from './webSearch';
 
 export interface Tweet {
@@ -23,36 +23,32 @@ export interface IntentionAnalysis {
 }
 
 export class ThreadGenerator {
-  private ollama: Ollama;
+  private llmService: LLMService;
   private webSearchService: WebSearchService;
 
   constructor() {
-    this.ollama = new Ollama({
-      host: 'http://localhost:11434'
-    });
+    this.llmService = LLMServiceFactory.createLLMService();
     this.webSearchService = new WebSearchService();
+    
+    console.log(`ThreadGenerator initialized with ${this.llmService.getProviderName()}`);
   }
 
   async generateThread(topic: string, context?: string, tone?: string): Promise<ThreadResponse> {
     const prompt = this.buildPrompt(topic, context, tone);
     
     try {
-      const response = await this.ollama.chat({
-        model: 'llama3.2',
-        messages: [
-          {
-            role: 'system',
-            content: 'You are an expert technical content creator for B2B SaaS and database professionals. Generate engaging Twitter threads with code examples, emojis, and practical insights.'
-          },
-          {
-            role: 'user',
-            content: prompt
-          }
-        ],
-        stream: false
-      });
+      const response = await this.llmService.chat([
+        {
+          role: 'system',
+          content: 'You are an expert technical content creator for B2B SaaS and database professionals. Generate engaging Twitter threads with code examples, emojis, and practical insights.'
+        },
+        {
+          role: 'user',
+          content: prompt
+        }
+      ]);
 
-      const threadContent = response.message.content;
+      const threadContent = response.content;
       const tweets = this.parseThreadContent(threadContent, topic);
       
       return {
@@ -61,8 +57,8 @@ export class ThreadGenerator {
         generatedAt: new Date().toISOString()
       };
     } catch (error) {
-      console.error('Ollama generation error:', error);
-      throw new Error('Failed to generate thread. Please ensure Ollama is running with llama3.2 model.');
+      console.error('LLM generation error:', error);
+      throw new Error('Failed to generate thread. Please ensure LLM service is running.');
     }
   }
 
@@ -260,18 +256,14 @@ Requirements:
 Return only the improved tweet content:`;
 
     try {
-      const response = await this.ollama.chat({
-        model: 'llama3.2',
-        messages: [
-          {
-            role: 'user',
-            content: prompt
-          }
-        ],
-        stream: false
-      });
+      const response = await this.llmService.chat([
+        {
+          role: 'user',
+          content: prompt
+        }
+      ]);
 
-      const newContent = response.message.content.trim();
+      const newContent = response.content.trim();
       
       return {
         id: tweetId,
@@ -316,22 +308,18 @@ Examples:
 Respond with valid JSON only:`;
 
     try {
-      const response = await this.ollama.chat({
-        model: 'llama3.2',
-        messages: [
-          {
-            role: 'system',
-            content: 'You are an expert at analyzing database and SQL topics. Always respond with valid JSON format.'
-          },
-          {
-            role: 'user',
-            content: prompt
-          }
-        ],
-        stream: false
-      });
+      const response = await this.llmService.chat([
+        {
+          role: 'system',
+          content: 'You are an expert at analyzing database and SQL topics. Always respond with valid JSON format.'
+        },
+        {
+          role: 'user',
+          content: prompt
+        }
+      ]);
 
-      const jsonResponse = response.message.content.trim();
+      const jsonResponse = response.content.trim();
       console.log('Raw intention analysis response:', jsonResponse);
       
       // Try to parse JSON response
@@ -377,22 +365,18 @@ Respond with valid JSON only:`;
       console.log(prompt.substring(0, 500) + '...');
       console.log('=======================');
       
-      const response = await this.ollama.chat({
-        model: 'llama3.2',
-        messages: [
-          {
-            role: 'system',
-            content: 'You are an expert technical content creator specializing in database systems, SQL, and data engineering. You MUST generate exactly 6 tweets, each starting with "TWEET:" and numbered 1/6, 2/6, etc. Follow the format requirements precisely.'
-          },
-          {
-            role: 'user',
-            content: prompt
-          }
-        ],
-        stream: false
-      });
+      const response = await this.llmService.chat([
+        {
+          role: 'system',
+          content: 'You are an expert technical content creator specializing in database systems, SQL, and data engineering. You MUST generate exactly 6 tweets, each starting with "TWEET:" and numbered 1/6, 2/6, etc. Follow the format requirements precisely.'
+        },
+        {
+          role: 'user',
+          content: prompt
+        }
+      ]);
 
-      const threadContent = response.message.content;
+      const threadContent = response.content;
       console.log('=== RAW LLM RESPONSE ===');
       console.log(threadContent);
       console.log('========================');
@@ -410,7 +394,7 @@ Respond with valid JSON only:`;
       };
     } catch (error) {
       console.error('Enhanced thread generation error:', error);
-      throw new Error('Failed to generate enhanced thread. Please ensure Ollama is running with llama3.2 model.');
+      throw new Error('Failed to generate enhanced thread. Please ensure LLM service is running.');
     }
   }
 
