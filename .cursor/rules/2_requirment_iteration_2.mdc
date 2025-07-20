@@ -1,0 +1,108 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+
+Product Requirements Document - Technical Thread Generator v1.1 (Iteration 2)
+Overview:
+Enhance the existing thread generator with intelligent context-building to create more targeted, valuable content for users.
+Current State (Iteration 1):
+
+Working input form with topic and optional context fields
+LLM-powered thread generation (6 tweets)
+Individual tweet editing and regeneration
+Clean UI with character counts and copy functionality
+
+New Features for Iteration 2:
+Feature 1: Intelligent Topic Analysis
+
+After user submits topic, LLM analyzes it to identify context gaps
+System determines what additional information would improve content quality
+No user-facing changes to initial input form
+
+Feature 2: Dynamic Question Generation
+
+Generate 3-5 contextual questions based on topic analysis
+Questions should be specific to the technical domain
+Examples:
+
+For "Database indexing": "What database system are you using?", "What performance issues are you trying to solve?"
+For "HTTP/2": "Are you comparing to HTTP/1.1?", "Focus on client or server implementation?"
+
+
+
+Feature 3: Context Collection Interface
+
+New step between topic input and thread generation
+Display generated questions in a clean form
+Each question has:
+
+Text input field for open-ended answers
+Optional "Skip this question" option
+Character limit: 200 per answer
+
+
+"Generate Thread with Context" button to proceed
+
+Feature 4: Enhanced Content Generation
+
+Combine original topic + user answers into comprehensive context prompt
+Pass full context to LLM for more targeted thread generation
+Maintain current 6-tweet format and editing capabilities
+Content should be more specific and actionable based on provided context
+
+Technical Requirements:
+Backend API Changes:
+New Endpoints:
+POST /api/analyze-topic
+- Input: { topic: string, context?: string }
+- Output: { questions: string[] }
+
+POST /api/generate-with-context  
+- Input: { topic: string, context?: string, answers: { question: string, answer: string }[] }
+- Output: { thread: Tweet[] }
+
+Keep existing:
+POST /api/generate-thread (for users who skip context building)
+Frontend Components:
+
+New QuestionForm component
+Update main flow to include question step
+Add navigation between steps (Back/Continue buttons)
+Loading states for question generation
+Progress indicator (Step 1 of 3, Step 2 of 3, etc.)
+
+User Experience Flow:
+
+User enters topic → Click "Next"
+NEW: Loading → Questions appear → User fills answers → Click "Generate Thread"
+NEW: Loading → Enhanced thread appears → User edits as before
+
+UI/UX Requirements:
+
+Maintain current clean design aesthetic
+Questions should feel conversational, not like a form
+Allow users to skip the question step entirely (fallback to v1 behavior)
+Smooth transitions between steps
+Mobile responsive
+
+Technical Constraints:
+
+Keep existing Node.js + TypeScript + Vanilla HTML/CSS/JS stack
+Continue using local Llama via Ollama
+No database required - maintain session-based approach
+Question generation should complete within 10 seconds
+Total flow (including context) should complete within 45 seconds
+
+Success Metrics:
+
+Users who complete context questions should rate content quality higher
+Generated threads should require fewer manual edits
+Content should be more specific and actionable
+
+Error Handling:
+
+If question generation fails, fallback to original flow
+Timeout handling for slow LLM responses
+Graceful degradation if context building fails

@@ -1,8 +1,14 @@
+import 'dotenv/config';
 import { createServer, IncomingMessage, ServerResponse } from 'http';
 import { parse } from 'url';
 import { ThreadGenerator } from './services/threadGenerator';
 
 const PORT = process.env.PORT || 3001;
+
+console.log('🚀 Starting Tweety Backend Server...');
+console.log(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
+console.log(`🤖 LLM Provider: ${process.env.LLM_PROVIDER || 'llama (default)'}`);
+console.log(`🔗 Port: ${PORT}`);
 
 // CORS headers
 const setCorsHeaders = (res: ServerResponse) => {
@@ -59,6 +65,32 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
 
       const threadGenerator = new ThreadGenerator();
       const thread = await threadGenerator.generateThread(topic, context, tone);
+      
+      sendJson(res, { thread });
+    } else if (pathname === '/api/analyze-topic' && req.method === 'POST') {
+      const body = await parseJsonBody(req);
+      const { topic, context } = body;
+
+      if (!topic) {
+        sendJson(res, { error: 'Topic is required' }, 400);
+        return;
+      }
+
+      const threadGenerator = new ThreadGenerator();
+      const analysis = await threadGenerator.analyzeTopicIntention(topic, context);
+      
+      sendJson(res, analysis);
+    } else if (pathname === '/api/generate-with-context' && req.method === 'POST') {
+      const body = await parseJsonBody(req);
+      const { topic, context, refinedIntention } = body;
+
+      if (!topic) {
+        sendJson(res, { error: 'Topic is required' }, 400);
+        return;
+      }
+
+      const threadGenerator = new ThreadGenerator();
+      const thread = await threadGenerator.generateThreadWithContext(topic, context, refinedIntention);
       
       sendJson(res, { thread });
     } else if (pathname === '/api/health' && req.method === 'GET') {
