@@ -49,8 +49,29 @@ class ThreadGenerator {
       this.analyzeTopic();
     });
 
-    // Skip to original flow
+    // Topic input - show/hide skip button based on content
+    const topicInput = document.getElementById('topic') as HTMLInputElement;
     const skipBtn = document.getElementById('skipToOriginalBtn') as HTMLButtonElement;
+    
+    topicInput.addEventListener('input', (e) => {
+      const value = (e.target as HTMLInputElement).value.trim();
+      if (value.length > 0) {
+        skipBtn.classList.remove('hidden');
+      } else {
+        skipBtn.classList.add('hidden');
+      }
+    });
+
+    // Tweet count slider
+    const tweetCountSlider = document.getElementById('tweetCount') as HTMLInputElement;
+    const tweetCountDisplay = document.getElementById('tweetCountDisplay') as HTMLSpanElement;
+    
+    tweetCountSlider.addEventListener('input', (e) => {
+      const value = (e.target as HTMLInputElement).value;
+      tweetCountDisplay.textContent = value;
+    });
+
+    // Skip to original flow
     skipBtn.addEventListener('click', () => {
       this.generateOriginalThread();
     });
@@ -101,6 +122,16 @@ class ThreadGenerator {
     switch (step) {
       case 1:
         document.getElementById('inputStep')?.classList.remove('hidden');
+        // Check topic input and show/hide skip button accordingly
+        const topicInput = document.getElementById('topic') as HTMLInputElement;
+        const skipBtn = document.getElementById('skipToOriginalBtn') as HTMLButtonElement;
+        if (topicInput && skipBtn) {
+          if (topicInput.value.trim().length > 0) {
+            skipBtn.classList.remove('hidden');
+          } else {
+            skipBtn.classList.add('hidden');
+          }
+        }
         break;
       case 2:
         document.getElementById('intentionStep')?.classList.remove('hidden');
@@ -256,6 +287,11 @@ class ThreadGenerator {
     }
   }
 
+  private getTweetCount(): number {
+    const tweetCountSlider = document.getElementById('tweetCount') as HTMLInputElement;
+    return parseInt(tweetCountSlider.value) || 6;
+  }
+
   private async generateEnhancedThread() {
     const topicInput = document.getElementById('topic') as HTMLInputElement;
     const contextInput = document.getElementById('context') as HTMLTextAreaElement;
@@ -265,6 +301,7 @@ class ThreadGenerator {
     const topic = topicInput.value.trim();
     const context = contextInput.value.trim();
     const refinedIntention = refinedIntentionInput.value.trim();
+    const tweetCount = this.getTweetCount();
 
     // Show enhanced loading state with web search indication
     this.setButtonLoading(generateBtn, true, 'Researching latest info... 🔍');
@@ -279,7 +316,8 @@ class ThreadGenerator {
         body: JSON.stringify({
           topic,
           context: context || undefined,
-          refinedIntention: refinedIntention || undefined
+          refinedIntention: refinedIntention || undefined,
+          tweetCount
         }),
       });
 
@@ -299,7 +337,7 @@ class ThreadGenerator {
       console.error('Error generating enhanced thread:', error);
       this.showError(`Failed to generate enhanced thread: ${error instanceof Error ? error.message : 'Unknown error'}. Please try again or use the original flow.`);
     } finally {
-      this.setButtonLoading(generateBtn, false, 'Generate Enhanced Thread 🚀');
+      this.setButtonLoading(generateBtn, false, 'Generate Authority Thread 🚀');
     }
   }
 
@@ -309,6 +347,7 @@ class ThreadGenerator {
 
     const topic = topicInput.value.trim();
     const context = contextInput.value.trim();
+    const tweetCount = this.getTweetCount();
 
     if (!topic) {
       alert('Please enter a topic');
@@ -327,7 +366,8 @@ class ThreadGenerator {
         body: JSON.stringify({
           topic,
           context: context || undefined,
-          tone: 'professional'
+          tone: 'professional',
+          tweetCount
         }),
       });
 
@@ -363,10 +403,18 @@ class ThreadGenerator {
     const topicInput = document.getElementById('topic') as HTMLInputElement;
     const contextInput = document.getElementById('context') as HTMLTextAreaElement;
     const refinedIntentionInput = document.getElementById('refinedIntention') as HTMLTextAreaElement;
+    const tweetCountSlider = document.getElementById('tweetCount') as HTMLInputElement;
+    const tweetCountDisplay = document.getElementById('tweetCountDisplay') as HTMLSpanElement;
+    const skipBtn = document.getElementById('skipToOriginalBtn') as HTMLButtonElement;
     
     topicInput.value = '';
     contextInput.value = '';
     refinedIntentionInput.value = '';
+    tweetCountSlider.value = '6';
+    tweetCountDisplay.textContent = '6';
+    
+    // Hide skip button since topic is cleared
+    skipBtn.classList.add('hidden');
     
     // Reset state
     this.currentThread = [];
@@ -381,10 +429,17 @@ class ThreadGenerator {
     console.log('displayThread called with:', threadData);
     const resultsDiv = document.getElementById('threadResults') as HTMLDivElement;
     const tweetsContainer = document.getElementById('tweetsContainer') as HTMLDivElement;
+    const threadSubtitle = document.getElementById('threadSubtitle') as HTMLParagraphElement;
 
     if (!resultsDiv || !tweetsContainer) {
       console.error('Could not find results div or tweets container');
       return;
+    }
+
+    // Update subtitle with tweet count
+    if (threadSubtitle) {
+      const tweetCount = threadData.tweets.length;
+      threadSubtitle.textContent = `✨ ${tweetCount} ${tweetCount === 1 ? 'tweet' : 'tweets'} optimized for professional credibility and expertise showcase`;
     }
 
     // Clear previous results
@@ -577,6 +632,7 @@ class ThreadGenerator {
     const originalText = copyAllBtn.textContent;
     
     const allTweets = this.currentThread.map(tweet => tweet.content).join('\n\n');
+    const tweetCount = this.currentThread.length;
     
     try {
       // Show loading state
@@ -589,7 +645,7 @@ class ThreadGenerator {
       copyAllBtn.textContent = '✅ Copied!';
       copyAllBtn.classList.add('bg-green-100', 'text-green-700');
       
-      this.showToast(`All ${this.currentThread.length} tweets copied to clipboard! 📋`, 'success');
+      this.showToast(`All ${tweetCount} ${tweetCount === 1 ? 'tweet' : 'tweets'} copied to clipboard! 📋`, 'success');
       
       // Reset button after 2 seconds
       setTimeout(() => {

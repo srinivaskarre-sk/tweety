@@ -76,20 +76,44 @@
                     ></textarea>
                 </div>
 
-                <div class="flex justify-between">
+                <div>
+                    <label for="tweetCount" class="block text-sm font-medium text-gray-700 mb-2">Number of Tweets</label>
+                    <div class="flex items-center space-x-4">
+                        <input 
+                            type="range" 
+                            id="tweetCount" 
+                            min="1" 
+                            max="20" 
+                            value="6"
+                            class="flex-1 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer slider"
+                        >
+                        <div class="flex items-center">
+                            <span id="tweetCountDisplay" class="text-lg font-semibold text-blue-600 min-w-[3rem] text-center">6</span>
+                            <span class="text-sm text-gray-500 ml-1">tweets</span>
+                        </div>
+                    </div>
+                    <div class="flex justify-between text-xs text-gray-500 mt-1">
+                        <span>Quick (1)</span>
+                        <span>Standard (6)</span>
+                        <span>Comprehensive (20)</span>
+                    </div>
+                    <p class="text-xs text-gray-500 mt-2">Choose the length that fits your content strategy</p>
+                </div>
+
+                <div class="flex justify-end">
                     <button 
-                        type="button" 
                         id="skipToOriginalBtn"
-                        class="px-4 py-2 text-gray-600 hover:text-gray-800 font-medium"
+                        type="button" 
+                        class="hidden mr-auto px-4 py-2 text-gray-600 hover:text-gray-800 font-medium transition-colors"
                     >
-                        Skip Analysis
+                        ⚡ Skip Analysis
                     </button>
                     <button 
                         type="submit" 
                         id="analyzeBtn"
-                        class="bg-blue-600 text-white py-2 px-6 rounded-lg font-medium hover:bg-blue-700 transition-colors"
+                        class="px-6 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors"
                     >
-                        Analyze for Authority 🔍
+                        🔍 Analyze Topic
                     </button>
                 </div>
             </form>
@@ -191,7 +215,7 @@
             <div class="flex items-center justify-between mb-6">
                 <div>
                     <h3 class="text-lg font-semibold text-gray-900">Your Authority-Building Technical Thread</h3>
-                    <p class="text-sm text-gray-600 mt-1">✨ Optimized for professional credibility and expertise showcase</p>
+                    <p id="threadSubtitle" class="text-sm text-gray-600 mt-1">✨ Optimized for professional credibility and expertise showcase</p>
                 </div>
                 <div class="flex items-center space-x-3">
                     <button 
