@@ -1,4 +1,5 @@
 import { Ollama } from 'ollama';
+import { WebSearchService, SearchResult } from './webSearch';
 
 export interface Tweet {
   id: string;
@@ -21,19 +22,15 @@ export interface IntentionAnalysis {
   fallbackToOriginal?: boolean;
 }
 
-export interface SearchResult {
-  title: string;
-  snippet: string;
-  url: string;
-}
-
 export class ThreadGenerator {
   private ollama: Ollama;
+  private webSearchService: WebSearchService;
 
   constructor() {
     this.ollama = new Ollama({
       host: 'http://localhost:11434'
     });
+    this.webSearchService = new WebSearchService();
   }
 
   async generateThread(topic: string, context?: string, tone?: string): Promise<ThreadResponse> {
@@ -371,7 +368,7 @@ Respond with valid JSON only:`;
     try {
       // Perform web search for additional context
       console.log('Performing web search for topic:', topic);
-      const searchResults = await this.searchWeb(topic, refinedIntention);
+      const searchResults = await this.webSearchService.searchWeb(topic, refinedIntention);
       
       const enhancedContext = this.buildEnhancedContext(topic, context, refinedIntention, searchResults);
       const prompt = this.buildEnhancedPrompt(topic, enhancedContext);
@@ -415,86 +412,6 @@ Respond with valid JSON only:`;
       console.error('Enhanced thread generation error:', error);
       throw new Error('Failed to generate enhanced thread. Please ensure Ollama is running with llama3.2 model.');
     }
-  }
-
-  // Simple web search implementation
-  private async searchWeb(topic: string, refinedIntention?: string): Promise<SearchResult[]> {
-    try {
-      // Create search query focused on database topics
-      const searchQuery = this.buildSearchQuery(topic, refinedIntention);
-      console.log('Search query:', searchQuery);
-      
-      // Use DuckDuckGo instant answer API (simple and free)
-      const searchUrl = `https://api.duckduckgo.com/?q=${encodeURIComponent(searchQuery)}&format=json&pretty=1&no_html=1&skip_disambig=1`;
-      
-      // Use AbortController for timeout
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 8000);
-      
-      const response = await fetch(searchUrl, {
-        headers: {
-          'User-Agent': 'TweetyThreadGenerator/1.0',
-          'Accept': 'application/json'
-        },
-        signal: controller.signal
-      });
-
-      clearTimeout(timeoutId);
-
-      if (!response.ok) {
-        console.warn(`Search API returned ${response.status}, falling back to no search results`);
-        return [];
-      }
-
-      const data = await response.json() as any;
-      
-      // Extract relevant results
-      const results: SearchResult[] = [];
-      
-      // DuckDuckGo instant answer
-      if (data.Abstract && data.Abstract.length > 20) {
-        results.push({
-          title: data.Heading || 'Database Overview',
-          snippet: data.Abstract.substring(0, 300) + (data.Abstract.length > 300 ? '...' : ''),
-          url: data.AbstractURL || ''
-        });
-      }
-      
-      // Related topics
-      if (data.RelatedTopics && Array.isArray(data.RelatedTopics)) {
-        data.RelatedTopics.slice(0, 3).forEach((topic: any) => {
-          if (topic.Text && topic.Text.length > 20) {
-            const snippet = topic.Text.substring(0, 200) + (topic.Text.length > 200 ? '...' : '');
-            results.push({
-              title: topic.Text.split(' - ')[0] || 'Related Database Topic',
-              snippet: snippet,
-              url: topic.FirstURL || ''
-            });
-          }
-        });
-      }
-      
-      console.log(`Found ${results.length} search results for database topic`);
-      return results.slice(0, 4); // Limit to top 4 results
-      
-    } catch (error) {
-      console.warn('Web search failed, continuing without search results:', error.message);
-      // Return empty results - graceful fallback, no error thrown
-      return [];
-    }
-  }
-
-  private buildSearchQuery(topic: string, refinedIntention?: string): string {
-    const cleanTopic = topic.replace(/^I want to write about /i, '').trim();
-    
-    // Add database-specific terms to improve search relevance
-    const databaseTerms = 'database SQL best practices examples tutorial 2024';
-    
-    if (refinedIntention && refinedIntention.length > 0) {
-      return `${cleanTopic} ${refinedIntention} ${databaseTerms}`;
-    }
-    
-    return `${cleanTopic} ${databaseTerms}`;
   }
 
   private buildEnhancedContext(topic: string, context?: string, refinedIntention?: string, searchResults?: SearchResult[]): string {
