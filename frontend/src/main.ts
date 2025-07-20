@@ -12,33 +12,139 @@ interface ThreadResponse {
   generatedAt: string;
 }
 
+interface IntentionAnalysis {
+  intention: string;
+  isDatabaseTopic: boolean;
+  suggestedContext?: string;
+  fallbackToOriginal?: boolean;
+}
+
 class ThreadGenerator {
   private apiUrl = 'http://localhost:3001';
   private currentThread: Tweet[] = [];
+  private currentStep = 1;
+  private currentAnalysis: IntentionAnalysis | null = null;
 
   constructor() {
     this.initializeEventListeners();
+    this.showStep(1);
   }
 
   private initializeEventListeners() {
+    // Step 1: Topic input form
     const form = document.getElementById('threadForm') as HTMLFormElement;
-    const generateBtn = document.getElementById('generateBtn') as HTMLButtonElement;
-    const copyAllBtn = document.getElementById('copyAllBtn') as HTMLButtonElement;
-
     form.addEventListener('submit', (e) => {
       e.preventDefault();
-      this.generateThread();
+      this.analyzeTopic();
     });
 
+    // Skip to original flow
+    const skipBtn = document.getElementById('skipToOriginalBtn') as HTMLButtonElement;
+    skipBtn.addEventListener('click', () => {
+      this.generateOriginalThread();
+    });
+
+    // Step 2: Intention review
+    const backBtn = document.getElementById('backToInputBtn') as HTMLButtonElement;
+    backBtn.addEventListener('click', () => {
+      this.showStep(1);
+    });
+
+    const generateWithContextBtn = document.getElementById('generateWithContextBtn') as HTMLButtonElement;
+    generateWithContextBtn.addEventListener('click', () => {
+      this.generateEnhancedThread();
+    });
+
+    // Results actions
+    const copyAllBtn = document.getElementById('copyAllBtn') as HTMLButtonElement;
     copyAllBtn.addEventListener('click', () => {
       this.copyAllTweets();
     });
+
+    const startOverBtn = document.getElementById('startOverBtn') as HTMLButtonElement;
+    startOverBtn.addEventListener('click', () => {
+      this.startOver();
+    });
   }
 
-  private async generateThread() {
+  private showStep(step: number) {
+    this.currentStep = step;
+    
+    // Hide all steps
+    document.getElementById('inputStep')?.classList.add('hidden');
+    document.getElementById('intentionStep')?.classList.add('hidden');
+    document.getElementById('threadResults')?.classList.add('hidden');
+    
+    // Show progress indicator if not on step 1
+    const progressIndicator = document.getElementById('progressIndicator');
+    if (step > 1) {
+      progressIndicator?.classList.remove('hidden');
+    } else {
+      progressIndicator?.classList.add('hidden');
+    }
+    
+    // Update progress indicators
+    this.updateProgressIndicator(step);
+    
+    // Show current step
+    switch (step) {
+      case 1:
+        document.getElementById('inputStep')?.classList.remove('hidden');
+        break;
+      case 2:
+        document.getElementById('intentionStep')?.classList.remove('hidden');
+        break;
+      case 3:
+        document.getElementById('threadResults')?.classList.remove('hidden');
+        break;
+    }
+    
+    // Scroll to top
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  private updateProgressIndicator(currentStep: number) {
+    const indicators = ['step1Indicator', 'step2Indicator', 'step3Indicator'];
+    const progressBars = ['progress1', 'progress2'];
+    
+    indicators.forEach((id, index) => {
+      const indicator = document.getElementById(id);
+      if (!indicator) return;
+      
+      const stepNum = index + 1;
+      if (stepNum < currentStep) {
+        // Completed step
+        indicator.className = 'w-8 h-8 rounded-full bg-green-600 text-white flex items-center justify-center text-sm font-medium';
+        indicator.innerHTML = '✓';
+      } else if (stepNum === currentStep) {
+        // Current step
+        indicator.className = 'w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center text-sm font-medium';
+        indicator.innerHTML = stepNum.toString();
+      } else {
+        // Future step
+        indicator.className = 'w-8 h-8 rounded-full bg-gray-200 text-gray-500 flex items-center justify-center text-sm font-medium';
+        indicator.innerHTML = stepNum.toString();
+      }
+    });
+    
+    // Update progress bars
+    progressBars.forEach((id, index) => {
+      const bar = document.getElementById(id);
+      if (!bar) return;
+      
+      const barStep = index + 1;
+      if (currentStep > barStep) {
+        bar.style.width = '100%';
+      } else {
+        bar.style.width = '0%';
+      }
+    });
+  }
+
+  private async analyzeTopic() {
     const topicInput = document.getElementById('topic') as HTMLInputElement;
     const contextInput = document.getElementById('context') as HTMLTextAreaElement;
-    const generateBtn = document.getElementById('generateBtn') as HTMLButtonElement;
+    const analyzeBtn = document.getElementById('analyzeBtn') as HTMLButtonElement;
 
     const topic = topicInput.value.trim();
     const context = contextInput.value.trim();
@@ -49,8 +155,130 @@ class ThreadGenerator {
     }
 
     // Show loading state
-    this.setLoadingState(true);
-    this.hideResults();
+    this.setButtonLoading(analyzeBtn, true, 'Analyzing... 🔍');
+    this.hideError();
+
+    try {
+      const response = await fetch(`${this.apiUrl}/api/analyze-topic`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          topic,
+          context: context || undefined
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const analysis: IntentionAnalysis = await response.json();
+      this.currentAnalysis = analysis;
+      
+      // Check if should fallback to original
+      if (analysis.fallbackToOriginal) {
+        await this.generateOriginalThread();
+        return;
+      }
+      
+      this.displayIntentionAnalysis(analysis);
+      this.showStep(2);
+      
+    } catch (error) {
+      console.error('Error analyzing topic:', error);
+      this.showError(`Failed to analyze topic: ${error instanceof Error ? error.message : 'Unknown error'}. Falling back to original flow.`);
+      // Fallback to original flow
+      setTimeout(() => {
+        this.generateOriginalThread();
+      }, 2000);
+    } finally {
+      this.setButtonLoading(analyzeBtn, false, 'Analyze Topic 🔍');
+    }
+  }
+
+  private displayIntentionAnalysis(analysis: IntentionAnalysis) {
+    const intentionText = document.getElementById('intentionText');
+    const nonDatabaseWarning = document.getElementById('nonDatabaseWarning');
+    
+    if (intentionText) {
+      intentionText.textContent = analysis.intention;
+    }
+    
+    // Show warning if not a database topic
+    if (!analysis.isDatabaseTopic && nonDatabaseWarning) {
+      nonDatabaseWarning.classList.remove('hidden');
+    } else if (nonDatabaseWarning) {
+      nonDatabaseWarning.classList.add('hidden');
+    }
+    
+    // Pre-fill suggested context if available
+    if (analysis.suggestedContext) {
+      const refinedIntention = document.getElementById('refinedIntention') as HTMLTextAreaElement;
+      if (refinedIntention) {
+        refinedIntention.placeholder = `Suggestion: ${analysis.suggestedContext}`;
+      }
+    }
+  }
+
+  private async generateEnhancedThread() {
+    const topicInput = document.getElementById('topic') as HTMLInputElement;
+    const contextInput = document.getElementById('context') as HTMLTextAreaElement;
+    const refinedIntentionInput = document.getElementById('refinedIntention') as HTMLTextAreaElement;
+    const generateBtn = document.getElementById('generateWithContextBtn') as HTMLButtonElement;
+
+    const topic = topicInput.value.trim();
+    const context = contextInput.value.trim();
+    const refinedIntention = refinedIntentionInput.value.trim();
+
+    // Show loading state
+    this.setButtonLoading(generateBtn, true, 'Generating... ⚡');
+    this.hideError();
+
+    try {
+      const response = await fetch(`${this.apiUrl}/api/generate-with-context`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          topic,
+          context: context || undefined,
+          refinedIntention: refinedIntention || undefined
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data: { thread: ThreadResponse } = await response.json();
+      this.currentThread = data.thread.tweets;
+      this.displayThread(data.thread);
+      this.showStep(3);
+      
+    } catch (error) {
+      console.error('Error generating enhanced thread:', error);
+      this.showError(`Failed to generate enhanced thread: ${error instanceof Error ? error.message : 'Unknown error'}. Please try again or use the original flow.`);
+    } finally {
+      this.setButtonLoading(generateBtn, false, 'Generate Enhanced Thread 🚀');
+    }
+  }
+
+  private async generateOriginalThread() {
+    const topicInput = document.getElementById('topic') as HTMLInputElement;
+    const contextInput = document.getElementById('context') as HTMLTextAreaElement;
+
+    const topic = topicInput.value.trim();
+    const context = contextInput.value.trim();
+
+    if (!topic) {
+      alert('Please enter a topic');
+      return;
+    }
+
+    // Show loading state
     this.hideError();
 
     try {
@@ -71,30 +299,45 @@ class ThreadGenerator {
       }
 
       const data: { thread: ThreadResponse } = await response.json();
-      console.log('API Response:', data);
-      console.log('Thread tweets:', data.thread.tweets);
       this.currentThread = data.thread.tweets;
       this.displayThread(data.thread);
+      this.showStep(3);
+      
     } catch (error) {
       console.error('Error generating thread:', error);
       this.showError(`Failed to generate thread: ${error instanceof Error ? error.message : 'Unknown error'}. Please ensure the backend server is running and Ollama is available.`);
-    } finally {
-      this.setLoadingState(false);
     }
   }
 
-  private setLoadingState(loading: boolean) {
-    const generateBtn = document.getElementById('generateBtn') as HTMLButtonElement;
-    
+  private setButtonLoading(button: HTMLButtonElement, loading: boolean, loadingText?: string, originalText?: string) {
     if (loading) {
-      generateBtn.disabled = true;
-      generateBtn.textContent = 'Generating... ⚡';
-      generateBtn.classList.add('opacity-50');
+      button.disabled = true;
+      if (loadingText) button.textContent = loadingText;
+      button.classList.add('opacity-50');
     } else {
-      generateBtn.disabled = false;
-      generateBtn.textContent = 'Generate Thread 🚀';
-      generateBtn.classList.remove('opacity-50');
+      button.disabled = false;
+      if (originalText) button.textContent = originalText;
+      button.classList.remove('opacity-50');
     }
+  }
+
+  private startOver() {
+    // Reset form
+    const topicInput = document.getElementById('topic') as HTMLInputElement;
+    const contextInput = document.getElementById('context') as HTMLTextAreaElement;
+    const refinedIntentionInput = document.getElementById('refinedIntention') as HTMLTextAreaElement;
+    
+    topicInput.value = '';
+    contextInput.value = '';
+    refinedIntentionInput.value = '';
+    
+    // Reset state
+    this.currentThread = [];
+    this.currentAnalysis = null;
+    this.hideError();
+    
+    // Go back to step 1
+    this.showStep(1);
   }
 
   private displayThread(threadData: ThreadResponse) {
@@ -118,9 +361,6 @@ class ThreadGenerator {
       tweetsContainer.appendChild(tweetCard);
     });
 
-    // Show results
-    resultsDiv.classList.remove('hidden');
-    resultsDiv.scrollIntoView({ behavior: 'smooth' });
     console.log('Thread display completed');
   }
 
@@ -240,18 +480,6 @@ class ThreadGenerator {
     if (tweetIndex !== -1) {
       this.currentThread[tweetIndex].content = textarea.value;
       this.currentThread[tweetIndex].characterCount = count;
-    }
-  }
-
-  private async copyTweet(tweetId: string) {
-    const tweet = this.currentThread.find(t => t.id === tweetId);
-    if (!tweet) return;
-
-    try {
-      await navigator.clipboard.writeText(tweet.content);
-      this.showToast('Tweet copied to clipboard! 📋');
-    } catch (error) {
-      console.error('Failed to copy tweet:', error);
     }
   }
 
@@ -418,11 +646,6 @@ class ThreadGenerator {
   private hideError() {
     const errorDiv = document.getElementById('errorState') as HTMLDivElement;
     errorDiv.classList.add('hidden');
-  }
-
-  private hideResults() {
-    const resultsDiv = document.getElementById('threadResults') as HTMLDivElement;
-    resultsDiv.classList.add('hidden');
   }
 }
 

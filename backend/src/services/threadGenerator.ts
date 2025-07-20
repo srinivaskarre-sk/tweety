@@ -14,6 +14,13 @@ export interface ThreadResponse {
   generatedAt: string;
 }
 
+export interface IntentionAnalysis {
+  intention: string;
+  isDatabaseTopic: boolean;
+  suggestedContext?: string;
+  fallbackToOriginal?: boolean;
+}
+
 export class ThreadGenerator {
   private ollama: Ollama;
 
@@ -222,5 +229,172 @@ Return only the improved tweet content:`;
       console.error('Tweet regeneration error:', error);
       throw new Error('Failed to regenerate tweet');
     }
+  }
+
+  // Analyze user's topic intention for database/SQL content
+  async analyzeTopicIntention(topic: string, context?: string): Promise<IntentionAnalysis> {
+    const prompt = `Analyze this user input to understand their intention for creating a database/SQL-focused Twitter thread:
+
+User Topic: "${topic}"
+${context ? `Additional Context: "${context}"` : ''}
+
+REQUIREMENTS:
+1. Determine if this is a database/SQL-related topic
+2. Create a simple, conversational summary of what the user wants to explain
+3. Focus on database systems, SQL queries, data modeling, performance, or related concepts
+
+RESPONSE FORMAT (JSON):
+{
+  "intention": "Simple text summary like: 'You want to explain database isolation levels with practical SQL examples and real-world scenarios'",
+  "isDatabaseTopic": true/false,
+  "suggestedContext": "Optional suggestion for missing context",
+  "fallbackToOriginal": false
+}
+
+If NOT database-related, set isDatabaseTopic to false and fallbackToOriginal to true.
+
+Examples:
+- "What are database isolation levels" → "You want to explain the four database isolation levels (READ UNCOMMITTED, READ COMMITTED, REPEATABLE READ, SERIALIZABLE) with practical examples"
+- "SQL query optimization" → "You want to share SQL query optimization techniques and performance improvement strategies"
+- "React components" → Set isDatabaseTopic: false, fallbackToOriginal: true
+
+Respond with valid JSON only:`;
+
+    try {
+      const response = await this.ollama.chat({
+        model: 'llama3.2',
+        messages: [
+          {
+            role: 'system',
+            content: 'You are an expert at analyzing database and SQL topics. Always respond with valid JSON format.'
+          },
+          {
+            role: 'user',
+            content: prompt
+          }
+        ],
+        stream: false
+      });
+
+      const jsonResponse = response.message.content.trim();
+      console.log('Raw intention analysis response:', jsonResponse);
+      
+      // Try to parse JSON response
+      try {
+        const analysis = JSON.parse(jsonResponse);
+        return {
+          intention: analysis.intention || 'Database-related content creation',
+          isDatabaseTopic: analysis.isDatabaseTopic !== false,
+          suggestedContext: analysis.suggestedContext,
+          fallbackToOriginal: analysis.fallbackToOriginal === true
+        };
+      } catch (parseError) {
+        console.error('Failed to parse intention analysis JSON:', parseError);
+        // Fallback to original flow
+        return {
+          intention: 'Database-related content creation',
+          isDatabaseTopic: true,
+          fallbackToOriginal: true
+        };
+      }
+    } catch (error) {
+      console.error('Intention analysis error:', error);
+      // Graceful fallback
+      return {
+        intention: 'Database-related content creation',
+        isDatabaseTopic: true,
+        fallbackToOriginal: true
+      };
+    }
+  }
+
+  // Generate thread with enhanced context from intention analysis
+  async generateThreadWithContext(topic: string, context?: string, refinedIntention?: string): Promise<ThreadResponse> {
+    const enhancedContext = this.buildEnhancedContext(topic, context, refinedIntention);
+    const prompt = this.buildEnhancedPrompt(topic, enhancedContext);
+    
+    try {
+      const response = await this.ollama.chat({
+        model: 'llama3.2',
+        messages: [
+          {
+            role: 'system',
+            content: 'You are an expert technical content creator specializing in database systems, SQL, and data engineering. Generate engaging Twitter threads with practical examples, code snippets, and actionable insights for database professionals.'
+          },
+          {
+            role: 'user',
+            content: prompt
+          }
+        ],
+        stream: false
+      });
+
+      const threadContent = response.message.content;
+      const tweets = this.parseThreadContent(threadContent, topic);
+      
+      return {
+        tweets,
+        topic,
+        generatedAt: new Date().toISOString()
+      };
+    } catch (error) {
+      console.error('Enhanced thread generation error:', error);
+      throw new Error('Failed to generate enhanced thread. Please ensure Ollama is running with llama3.2 model.');
+    }
+  }
+
+  private buildEnhancedContext(topic: string, context?: string, refinedIntention?: string): string {
+    let enhancedContext = '';
+    
+    if (refinedIntention) {
+      enhancedContext += `User's refined intention: ${refinedIntention}\n`;
+    }
+    
+    if (context) {
+      enhancedContext += `Additional context: ${context}\n`;
+    }
+    
+    enhancedContext += `Focus: Database systems, SQL queries, performance optimization, data modeling, and practical implementation examples.`;
+    
+    return enhancedContext;
+  }
+
+  private buildEnhancedPrompt(topic: string, enhancedContext: string): string {
+    const cleanTopic = topic.replace(/^I want to write about /i, '').trim();
+    
+    return `Create a comprehensive Twitter thread about "${cleanTopic}" specifically for database professionals and developers.
+
+ENHANCED CONTEXT:
+${enhancedContext}
+
+STRICT REQUIREMENTS:
+- Generate exactly 6 tweets for database/SQL professionals
+- Each tweet MUST be under 280 characters
+- Include practical SQL examples, database concepts, and real-world scenarios
+- Use engaging emojis (🔥, ⚡, 💡, 🧵, 📊, 🔧, 🔒, 💾, ⚖️, 🎯, 📈)
+- Focus on actionable insights and practical implementation
+- Target audience: Database administrators, developers, data engineers
+- Number each tweet (1/6, 2/6, etc.)
+
+CONTENT FOCUS:
+- Database performance and optimization
+- SQL best practices and techniques
+- Data modeling and schema design
+- Security and compliance considerations
+- Real-world implementation examples
+- Common pitfalls and solutions
+
+FORMAT REQUIREMENTS:
+- Start each tweet with "TWEET:"
+- NO markdown formatting (**, *, etc.)
+- Each tweet on a single line
+- Include practical code examples where relevant
+- Balance technical depth with accessibility
+
+Example structure for database isolation levels:
+TWEET: 1/6 🧵 Database isolation levels explained: Your secret weapon against data corruption in high-concurrency apps ⚡ Let's explore READ UNCOMMITTED, READ COMMITTED, REPEATABLE READ, and SERIALIZABLE 🔒
+TWEET: 2/6 💡 READ UNCOMMITTED (Level 0): Fastest but dangerous! ⚠️ Allows dirty reads - you can see uncommitted changes. Perfect for analytics where speed > accuracy. Example: SELECT * FROM orders WHERE status = 'processing';
+
+Generate exactly 6 tweets for "${cleanTopic}". Each tweet must start with "TWEET:" and be on its own line:`;
   }
 } 

@@ -1,0 +1,55 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+
+
+Product Requirements Document - Technical Thread Generator v1.0
+Core Product Vision:
+AI-powered Twitter thread generator for B2B SaaS entrepreneurs and technical professionals to build authority through high-quality, technical content.
+Target User:
+B2B SaaS founders and technical leaders who want to share technical insights on Twitter but lack time to research and structure content properly.
+Key User Stories:
+
+As a SaaS founder, I want to input a technical topic and get a well-structured Twitter thread so I can share expertise without spending hours researching
+As a technical leader, I want to edit generated content before posting so I can add my personal insights and ensure accuracy
+As a busy entrepreneur, I want the content to be immediately valuable to readers so my audience sees me as a credible authority
+
+Functional Requirements:
+Input Interface:
+
+Simple text area for topic input (e.g., "HTTP/2 multiplexing", "Database indexing strategies")
+Optional context field for additional details or specific angles
+Generate button to trigger content creation
+
+Content Generation:
+
+Generate 5-7 tweet thread focused on technical topics
+Each tweet should be under 280 characters
+Include technical depth with practical insights
+Format with proper numbering (1/7, 2/7, etc.)
+Add relevant hashtags and emojis where appropriate
+
+Thread Display & Editing:
+
+Display generated thread as individual tweet cards
+Show character count per tweet
+Allow inline editing of each tweet
+Regenerate individual tweets or entire thread
+Copy to clipboard functionality
+
+Technical Requirements:
+
+Backend: Node.js + TypeScript
+Frontend: Vanilla HTML/CSS/TypeScript + Tailwind CSS
+LLM Integration: Local Llama via Ollama
+No database required for v1 (session-based)
+Responsive design for desktop and mobile
+
+Non-Functional Requirements:
+
+Thread generation should complete within 30 seconds
+Simple, clean UI similar to Typefully
+Content should be immediately usable without heavy editing
+Support modern browsers (Chrome, Firefox, Safari)
