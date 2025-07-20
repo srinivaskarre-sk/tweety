@@ -1,0 +1,25 @@
+{
+  "name": "tweety-thread-generator",
+  "version": "1.0.0",
+  "description": "AI-powered Twitter thread generator for B2B SaaS entrepreneurs and technical professionals",
+  "main": "dist/server.js",
+  "scripts": {
+    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "dev:backend": "cd backend && npm run dev",
+    "dev:frontend": "cd frontend && npm run dev",
+    "build": "npm run build:backend && npm run build:frontend",
+    "build:backend": "cd backend && npm run build",
+    "build:frontend": "cd frontend && npm run build",
+    "start": "cd backend && npm start",
+    "setup": "npm install && cd backend && npm install && cd ../frontend && npm install"
+  },
+  "keywords": ["twitter", "threads", "ai", "b2b", "saas", "ollama", "llama"],
+  "author": "Technical Thread Generator",
+  "license": "MIT",
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+} 
