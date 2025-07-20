@@ -1,14 +1,9 @@
 {
-  "name": "tweety-backend",
+  "name": "tweety-backend", 
   "version": "1.0.0",
-  "description": "Backend server for Technical Thread Generator",
-  "main": "dist/server.js",
+  "description": "Backend serverless functions for Technical Thread Generator",
   "scripts": {
-    "dev": "tsx watch src/server.ts",
-    "build": "tsc",
-    "start": "node dist/server.js",
-    "clean": "rm -rf dist",
-    "postinstall": "npm run build"
+    "dev": "tsx watch src/server.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.56.0",
@@ -21,8 +16,5 @@
   },
   "devDependencies": {
     "tsx": "^4.6.0"
-  },
-  "engines": {
-    "node": ">=18.0.0"
   }
 }
