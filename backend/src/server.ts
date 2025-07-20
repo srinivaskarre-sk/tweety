@@ -56,7 +56,7 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
   try {
     if (pathname === '/api/generate-thread' && req.method === 'POST') {
       const body = await parseJsonBody(req);
-      const { topic, context, tone } = body;
+      const { topic, context, tone, tweetCount } = body;
 
       if (!topic) {
         sendJson(res, { error: 'Topic is required' }, 400);
@@ -64,7 +64,7 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
       }
 
       const threadGenerator = new ThreadGenerator();
-      const thread = await threadGenerator.generateThread(topic, context, tone);
+      const thread = await threadGenerator.generateThread(topic, context, tone, tweetCount);
       
       sendJson(res, { thread });
     } else if (pathname === '/api/analyze-topic' && req.method === 'POST') {
@@ -82,7 +82,7 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
       sendJson(res, analysis);
     } else if (pathname === '/api/generate-with-context' && req.method === 'POST') {
       const body = await parseJsonBody(req);
-      const { topic, context, refinedIntention } = body;
+      const { topic, context, refinedIntention, tweetCount } = body;
 
       if (!topic) {
         sendJson(res, { error: 'Topic is required' }, 400);
@@ -90,7 +90,7 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
       }
 
       const threadGenerator = new ThreadGenerator();
-      const thread = await threadGenerator.generateThreadWithContext(topic, context, refinedIntention);
+      const thread = await threadGenerator.generateThreadWithContext(topic, context, refinedIntention, undefined, tweetCount);
       
       sendJson(res, { thread });
     } else if (pathname === '/api/health' && req.method === 'GET') {

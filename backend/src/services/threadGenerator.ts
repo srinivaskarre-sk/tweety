@@ -1,5 +1,7 @@
 import { LLMServiceFactory, LLMService } from './llmService';
 import { WebSearchService, SearchResult } from './webSearch';
+import { DomainService, DomainAnalysis, TechnicalDomain } from './domainService';
+import { ContentEnhancementService, ContentEnhancement } from './contentEnhancementService';
 
 export interface Tweet {
   id: string;
@@ -17,30 +19,38 @@ export interface ThreadResponse {
 
 export interface IntentionAnalysis {
   intention: string;
-  isDatabaseTopic: boolean;
-  suggestedContext?: string;
+  isTechnicalTopic: boolean;
+  domain?: TechnicalDomain;
+  suggestedHook?: string;
+  expertiseLevel?: 'beginner' | 'intermediate' | 'expert';
   fallbackToOriginal?: boolean;
 }
 
 export class ThreadGenerator {
   private llmService: LLMService;
   private webSearchService: WebSearchService;
+  private domainService: DomainService;
+  private contentEnhancementService: ContentEnhancementService;
 
   constructor() {
     this.llmService = LLMServiceFactory.createLLMService();
     this.webSearchService = new WebSearchService();
+    this.domainService = new DomainService();
+    this.contentEnhancementService = new ContentEnhancementService();
     
     console.log(`ThreadGenerator initialized with ${this.llmService.getProviderName()}`);
   }
 
-  async generateThread(topic: string, context?: string, tone?: string): Promise<ThreadResponse> {
-    const prompt = this.buildPrompt(topic, context, tone);
+  async generateThread(topic: string, context?: string, tone?: string, tweetCount: number = 6): Promise<ThreadResponse> {
+    // Validate tweet count
+    const validatedCount = this.validateTweetCount(tweetCount);
+    const prompt = this.buildPrompt(topic, context, tone, validatedCount);
     
     try {
       const response = await this.llmService.chat([
         {
           role: 'system',
-          content: 'You are an expert technical content creator for B2B SaaS and database professionals. Generate engaging Twitter threads with code examples, emojis, and practical insights.'
+          content: 'You are an expert technical content creator for B2B SaaS and technical professionals. Generate engaging Twitter threads with code examples, emojis, and practical insights.'
         },
         {
           role: 'user',
@@ -49,7 +59,7 @@ export class ThreadGenerator {
       ]);
 
       const threadContent = response.content;
-      const tweets = this.parseThreadContent(threadContent, topic);
+      const tweets = this.parseThreadContent(threadContent, topic, validatedCount);
       
       return {
         tweets,
@@ -62,20 +72,27 @@ export class ThreadGenerator {
     }
   }
 
-  private buildPrompt(topic: string, context?: string, tone?: string): string {
+  private buildPrompt(topic: string, context?: string, tone?: string, tweetCount: number = 6): string {
     const cleanTopic = topic.replace(/^I want to write about /i, '').trim();
+    
+    // Analyze content strategy for code enhancements
+    const domain = this.domainService.detectDomain(topic, context);
+    const enhancement = this.contentEnhancementService.analyzeContentStrategy(topic, domain.primaryDomain.id, context, tweetCount);
+    const codeInstructions = this.contentEnhancementService.generateVisualContentInstructions(enhancement);
     
     const basePrompt = `Create a Twitter thread about "${cleanTopic}" for B2B SaaS entrepreneurs and technical professionals.
 
 STRICT REQUIREMENTS:
-- Generate exactly 6 tweets
+- Generate exactly ${tweetCount} tweets
 - Each tweet MUST be under 280 characters
-- Include relevant code examples and SQL snippets where applicable
+- Include relevant code examples where applicable
 - Use engaging emojis (🔥, ⚡, 💡, 🧵, 📊, 🔧, 🔒, 💾, ⚖️)
 - Focus on practical, actionable insights
-- Target database professionals and developers building authority
+- Target technical professionals and developers building authority
 - Include technical depth with business value
-- Number each tweet (1/6, 2/6, etc.)
+- Number each tweet (1/${tweetCount}, 2/${tweetCount}, etc.)
+
+${codeInstructions}
 
 ${context ? `Additional context: ${context}` : ''}
 
@@ -83,160 +100,159 @@ ${tone ? `Tone: ${tone}` : 'Tone: Professional but approachable, educational, wi
 
 FORMAT REQUIREMENTS:
 - Start each tweet with "TWEET:"
-- NO markdown formatting (**, *, etc.)
 - Each tweet on a single line
 - Make each tweet standalone but part of the thread
-- Include practical examples, code snippets, or real-world scenarios
+- Include practical code examples where valuable
 - End with actionable advice
 
-Example for database isolation levels:
-TWEET: 1/6 🧵 Database isolation levels explained: The secret to preventing data corruption in high-concurrency applications ⚡ Let's dive into READ UNCOMMITTED, READ COMMITTED, REPEATABLE READ, and SERIALIZABLE 🔒
-TWEET: 2/6 💡 READ UNCOMMITTED: Fastest but dangerous! ⚠️ Allows dirty reads where you can see uncommitted changes from other transactions. Use only for analytics where accuracy isn't critical. Example: SELECT * FROM orders WHERE status = 'pending';
-TWEET: 3/6 ✅ READ COMMITTED: Default for most databases. Prevents dirty reads but allows phantom reads. Good balance of performance and consistency for most applications.
+CODE CONTENT STRATEGY: ${enhancement.visualContentStrategy}
+${enhancement.shouldIncludeCode ? '- Prioritize relevant code examples to demonstrate expertise' : ''}
 
-Generate exactly 6 tweets for "${cleanTopic}". Each tweet must start with "TWEET:" and be on its own line:`;
+Example for database isolation levels:
+TWEET: 1/${tweetCount} 🧵 Database isolation levels explained: The secret to preventing data corruption in high-concurrency applications ⚡ Let's dive into READ UNCOMMITTED, READ COMMITTED, REPEATABLE READ, and SERIALIZABLE 🔒
+TWEET: 2/${tweetCount} 💡 READ UNCOMMITTED: Fastest but dangerous! ⚠️ Allows dirty reads. \`SELECT * FROM orders WHERE status = 'pending'\` - Use only for analytics where accuracy isn't critical
+TWEET: 3/${tweetCount} ✅ READ COMMITTED: Default for most databases. Prevents dirty reads but allows phantom reads. Good balance of performance and consistency for most applications.
+
+Generate exactly ${tweetCount} tweets for "${cleanTopic}". Each tweet must start with "TWEET:" and be on its own line:`;
 
     return basePrompt;
   }
 
-  private parseThreadContent(content: string, topic: string): Tweet[] {
+  private processTweet(content: string, position: number, totalTweets: number): Tweet | null {
+    // Clean up formatting while preserving code backticks
+    let cleanContent = content.trim()
+      .replace(/\*\*/g, '') // Remove markdown bold
+      .replace(/\s+/g, ' ') // Normalize spaces
+      .trim();
+
+    // Validate tweet content
+    if (cleanContent && cleanContent.length > 10 && cleanContent.length <= 400) { // Reasonable limit for tweets with code
+      return {
+        id: `tweet-${position + 1}`,
+        content: cleanContent,
+        characterCount: cleanContent.length,
+        position: position + 1,
+        totalTweets: totalTweets // Use the passed totalTweets parameter
+      };
+    }
+    
+    return null;
+  }
+
+  private parseThreadContent(content: string, topic: string, tweetCount: number): Tweet[] {
     console.log('Raw AI response:', content);
     
     const lines = content.split('\n');
     const tweets: Tweet[] = [];
     let tweetCounter = 1;
+    let currentTweet = '';
 
-    for (const line of lines) {
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
       const trimmedLine = line.trim();
       
-      // Look for lines starting with TWEET: or containing numbered tweets
+      // Look for tweet markers
       if (trimmedLine.startsWith('TWEET:') || 
           /^\d+\/\d+/.test(trimmedLine) || 
           trimmedLine.match(/^(\d+\.\s|\d+\/\d+)/)) {
         
-        let tweetContent = '';
+        // Process previous tweet if we have one
+        if (currentTweet.trim()) {
+          const processedTweet = this.processTweet(currentTweet, tweets.length, tweetCount);
+          if (processedTweet) {
+            tweets.push(processedTweet);
+          }
+        }
         
+        // Start new tweet
+        let tweetContent = '';
         if (trimmedLine.startsWith('TWEET:')) {
           tweetContent = trimmedLine.replace('TWEET:', '').trim();
         } else {
           tweetContent = trimmedLine;
         }
         
-        // Enhanced cleaning for markdown and formatting issues
-        tweetContent = tweetContent
-          .replace(/\*\*/g, '') // Remove markdown bold
-          .replace(/\*/g, '') // Remove markdown italic
-          .replace(/`/g, '') // Remove code formatting
-          .replace(/\n\n\*\*TWEET:.*$/g, '') // Remove trailing TWEET markers
-          .replace(/\n+/g, ' ') // Replace newlines with spaces
-          .replace(/\s+/g, ' ') // Normalize multiple spaces
-          .trim();
+        currentTweet = tweetContent;
+        tweetCounter++;
         
-        // Validate tweet content
-        if (tweetContent && tweetContent.length > 10 && tweetContent.length <= 320) {
-          tweets.push({
-            id: `tweet-${tweetCounter}`,
-            content: tweetContent,
-            characterCount: tweetContent.length,
-            position: tweetCounter,
-            totalTweets: 0 // Will be updated after parsing all tweets
-          });
-          tweetCounter++;
-          
-          // Stop after 6 tweets
-          if (tweetCounter > 6) break;
-        }
+        // Stop after tweetCount tweets
+        if (tweetCounter > tweetCount + 1) break;
+      } else if (currentTweet) {
+        // Continue accumulating current tweet content
+        currentTweet += ' ' + trimmedLine;
+      }
+    }
+    
+    // Process final tweet
+    if (currentTweet.trim() && tweets.length < tweetCount) {
+      const processedTweet = this.processTweet(currentTweet, tweets.length, tweetCount);
+      if (processedTweet) {
+        tweets.push(processedTweet);
       }
     }
 
     // Enhanced fallback parsing if no tweets found with TWEET: prefix
     if (tweets.length === 0) {
       console.log('No tweets found with TWEET: prefix, trying alternative parsing...');
-      
-      // Try to split by numbers like "1/6", "2/6", etc.
-      const tweetPattern = /(\d+\/\d+.*?)(?=\d+\/\d+|$)/gs;
-      const matches = content.match(tweetPattern);
-      
-      if (matches && matches.length > 0) {
-        matches.forEach((match, index) => {
-          if (index < 6) { // Limit to 6 tweets
-            let cleanMatch = match.trim()
-              .replace(/\*\*/g, '')
-              .replace(/\*/g, '')
-              .replace(/`/g, '')
-              .replace(/\s+/g, ' ')
-              .trim();
-            
-            if (cleanMatch.length > 10 && cleanMatch.length <= 320) {
-              tweets.push({
-                id: `tweet-${index + 1}`,
-                content: cleanMatch,
-                characterCount: cleanMatch.length,
-                position: index + 1,
-                totalTweets: 0
-              });
-            }
-          }
-        });
-      }
+      return this.fallbackParsing(content, topic, tweetCount);
     }
 
-    // Final fallback - split by common patterns
-    if (tweets.length === 0) {
-      console.log('Alternative parsing failed, using pattern-based splitting...');
-      const patterns = [/\d+\/6/g, /Tweet \d+:/gi, /\d+\./g];
-      
-      for (const pattern of patterns) {
-        const parts = content.split(pattern);
-        if (parts.length > 1) {
-          for (let i = 1; i < Math.min(parts.length, 7); i++) {
-            const part = parts[i].trim()
-              .replace(/\*\*/g, '')
-              .replace(/\*/g, '')
-              .replace(/`/g, '')
-              .replace(/\s+/g, ' ')
-              .trim();
-            
-            if (part.length > 10 && part.length <= 320) {
-              tweets.push({
-                id: `tweet-${i}`,
-                content: `${i}/6 ${part}`,
-                characterCount: `${i}/6 ${part}`.length,
-                position: i,
-                totalTweets: 0
-              });
-            }
-          }
-          if (tweets.length > 0) break;
-        }
-      }
-    }
-
-    // Update totalTweets for all tweets
-    const finalTweetCount = Math.max(tweets.length, 1);
+    // Ensure all tweets have the correct totalTweets count
     tweets.forEach(tweet => {
-      tweet.totalTweets = finalTweetCount;
+      tweet.totalTweets = tweetCount;
     });
 
-    // Ultimate fallback with actual content generation
+    console.log(`Successfully parsed ${tweets.length} tweets with code content`);
+    tweets.forEach((tweet, index) => {
+      console.log(`Tweet ${index + 1}: "${tweet.content.substring(0, 50)}..." (${tweet.position}/${tweet.totalTweets})`);
+    });
+    
+    return tweets.slice(0, tweetCount);
+  }
+
+  private fallbackParsing(content: string, topic: string, tweetCount: number): Tweet[] {
+    const tweets: Tweet[] = [];
+    
+    // Try to split by numbers like "1/6", "2/6", etc.
+    const tweetPattern = /(\d+\/\d+.*?)(?=\d+\/\d+|$)/gs;
+    const matches = content.match(tweetPattern);
+    
+    if (matches && matches.length > 0) {
+      matches.forEach((match, index) => {
+        if (index < tweetCount) {
+          let cleanMatch = match.trim()
+            .replace(/\*\*/g, '')
+            .replace(/\s+/g, ' ')
+            .trim();
+          
+          if (cleanMatch.length > 10 && cleanMatch.length <= 400) {
+            tweets.push({
+              id: `tweet-${index + 1}`,
+              content: cleanMatch,
+              characterCount: cleanMatch.length,
+              position: index + 1,
+              totalTweets: tweetCount // Set correct total count
+            });
+          }
+        }
+      });
+    }
+
+    // Ultimate fallback
     if (tweets.length === 0) {
       console.log('All parsing failed, creating fallback tweet');
       const cleanTopic = topic.replace(/^I want to write about /i, '').trim();
-      tweets.push({
+      const fallbackTweet = {
         id: 'tweet-1',
         content: `1/1 🧵 ${cleanTopic} - Essential concepts every developer should master! 🚀 More detailed thread coming soon...`,
         characterCount: 0,
         position: 1,
         totalTweets: 1
-      });
-      tweets[0].characterCount = tweets[0].content.length;
+      };
+      fallbackTweet.characterCount = fallbackTweet.content.length;
+      tweets.push(fallbackTweet);
     }
 
-    console.log(`Successfully parsed ${tweets.length} tweets`);
-    tweets.forEach((tweet, index) => {
-      console.log(`Tweet ${index + 1}: "${tweet.content.substring(0, 50)}..."`);
-    });
-    
     return tweets;
   }
 
@@ -278,40 +294,46 @@ Return only the improved tweet content:`;
     }
   }
 
-  // Analyze user's topic intention for database/SQL content
+  // Analyze user's topic intention for technical content across all domains
   async analyzeTopicIntention(topic: string, context?: string): Promise<IntentionAnalysis> {
-    const prompt = `Analyze this user input to understand their intention for creating a database/SQL-focused Twitter thread:
+    try {
+      // First, detect the technical domain
+      const domainAnalysis = this.domainService.detectDomain(topic, context);
+      console.log('Domain analysis result:', domainAnalysis);
+
+      const prompt = `Analyze this user input to understand their intention for creating a technical Twitter thread that builds authority and expertise:
 
 User Topic: "${topic}"
 ${context ? `Additional Context: "${context}"` : ''}
+Detected Domain: ${domainAnalysis.primaryDomain.name}
 
 REQUIREMENTS:
-1. Determine if this is a database/SQL-related topic
+1. Determine if this is a technical topic suitable for B2B SaaS professionals
 2. Create a simple, conversational summary of what the user wants to explain
-3. Focus on database systems, SQL queries, data modeling, performance, or related concepts
+3. Focus on authority-building content that showcases expertise
+4. Consider how this topic helps build professional credibility
 
 RESPONSE FORMAT (JSON):
 {
-  "intention": "Simple text summary like: 'You want to explain database isolation levels with practical SQL examples and real-world scenarios'",
-  "isDatabaseTopic": true/false,
-  "suggestedContext": "Optional suggestion for missing context",
+  "intention": "Simple text summary like: 'You want to share React performance optimization secrets that distinguish senior developers from junior ones'",
+  "isTechnicalTopic": true/false,
+  "authorityFocus": "How this topic builds professional authority",
   "fallbackToOriginal": false
 }
 
-If NOT database-related, set isDatabaseTopic to false and fallbackToOriginal to true.
+If NOT technical/professional, set isTechnicalTopic to false and fallbackToOriginal to true.
 
 Examples:
-- "What are database isolation levels" → "You want to explain the four database isolation levels (READ UNCOMMITTED, READ COMMITTED, REPEATABLE READ, SERIALIZABLE) with practical examples"
-- "SQL query optimization" → "You want to share SQL query optimization techniques and performance improvement strategies"
-- "React components" → Set isDatabaseTopic: false, fallbackToOriginal: true
+- "React performance optimization" → "You want to share React performance secrets that separate senior developers from the rest"
+- "Microservices architecture patterns" → "You want to explain microservices patterns that scale startups to enterprise"
+- "Cooking recipes" → Set isTechnicalTopic: false, fallbackToOriginal: true
 
 Respond with valid JSON only:`;
 
-    try {
       const response = await this.llmService.chat([
         {
           role: 'system',
-          content: 'You are an expert at analyzing database and SQL topics. Always respond with valid JSON format.'
+          content: 'You are an expert at analyzing technical topics for B2B SaaS professionals. Always respond with valid JSON format.'
         },
         {
           role: 'user',
@@ -326,49 +348,60 @@ Respond with valid JSON only:`;
       try {
         const analysis = JSON.parse(jsonResponse);
         return {
-          intention: analysis.intention || 'Database-related content creation',
-          isDatabaseTopic: analysis.isDatabaseTopic !== false,
-          suggestedContext: analysis.suggestedContext,
+          intention: analysis.intention || `Technical insights about ${domainAnalysis.primaryDomain.name.toLowerCase()}`,
+          isTechnicalTopic: analysis.isTechnicalTopic !== false,
+          domain: domainAnalysis.primaryDomain,
+          suggestedHook: domainAnalysis.suggestedHook,
+          expertiseLevel: domainAnalysis.expertiseLevel,
           fallbackToOriginal: analysis.fallbackToOriginal === true
         };
       } catch (parseError) {
         console.error('Failed to parse intention analysis JSON:', parseError);
-        // Fallback to original flow
+        // Fallback using domain analysis
         return {
-          intention: 'Database-related content creation',
-          isDatabaseTopic: true,
-          fallbackToOriginal: true
+          intention: `Technical insights about ${domainAnalysis.primaryDomain.name.toLowerCase()}`,
+          isTechnicalTopic: true,
+          domain: domainAnalysis.primaryDomain,
+          suggestedHook: domainAnalysis.suggestedHook,
+          expertiseLevel: domainAnalysis.expertiseLevel,
+          fallbackToOriginal: false
         };
       }
     } catch (error) {
       console.error('Intention analysis error:', error);
       // Graceful fallback
       return {
-        intention: 'Database-related content creation',
-        isDatabaseTopic: true,
+        intention: 'Technical content creation',
+        isTechnicalTopic: true,
         fallbackToOriginal: true
       };
     }
   }
 
-  // Generate thread with enhanced context from intention analysis
-  async generateThreadWithContext(topic: string, context?: string, refinedIntention?: string): Promise<ThreadResponse> {
+  // Generate thread with enhanced context and domain expertise
+  async generateThreadWithContext(topic: string, context?: string, refinedIntention?: string, domainAnalysis?: DomainAnalysis, tweetCount: number = 6): Promise<ThreadResponse> {
     try {
+      // Validate tweet count
+      const validatedCount = this.validateTweetCount(tweetCount);
+      
+      // Use provided domain analysis or detect domain
+      const domain = domainAnalysis || this.domainService.detectDomain(topic, context);
+      
       // Perform web search for additional context
-      console.log('Performing web search for topic:', topic);
-      const searchResults = await this.webSearchService.searchWeb(topic, refinedIntention);
+      console.log('Performing web search for topic:', topic, 'Domain:', domain.primaryDomain.id, 'Tweet count:', validatedCount);
+      const searchResults = await this.webSearchService.searchWeb(topic, domain.primaryDomain.id, refinedIntention);
       
-      const enhancedContext = this.buildEnhancedContext(topic, context, refinedIntention, searchResults);
-      const prompt = this.buildEnhancedPrompt(topic, enhancedContext);
+      const enhancedContext = this.buildEnhancedContext(topic, context, refinedIntention, searchResults, domain);
+      const prompt = this.buildAuthorityBuildingPrompt(topic, enhancedContext, domain, validatedCount);
       
-      console.log('=== ENHANCED PROMPT ===');
+      console.log('=== ENHANCED AUTHORITY-BUILDING PROMPT ===');
       console.log(prompt.substring(0, 500) + '...');
-      console.log('=======================');
+      console.log('==========================================');
       
       const response = await this.llmService.chat([
         {
           role: 'system',
-          content: 'You are an expert technical content creator specializing in database systems, SQL, and data engineering. You MUST generate exactly 6 tweets, each starting with "TWEET:" and numbered 1/6, 2/6, etc. Follow the format requirements precisely.'
+          content: domain.primaryDomain.expertPersona + ` You MUST generate exactly ${validatedCount} tweets that build authority and showcase expertise. The first tweet must hook readers within 10 seconds.`
         },
         {
           role: 'user',
@@ -381,10 +414,10 @@ Respond with valid JSON only:`;
       console.log(threadContent);
       console.log('========================');
       
-      const tweets = this.parseThreadContent(threadContent, topic);
+      const tweets = this.parseThreadContent(threadContent, topic, validatedCount);
       
-      if (tweets.length < 6) {
-        console.warn(`Only parsed ${tweets.length} tweets instead of 6. Attempting to fix...`);
+      if (tweets.length < validatedCount) {
+        console.warn(`Only parsed ${tweets.length} tweets instead of ${validatedCount}. Attempting to fix...`);
       }
       
       return {
@@ -398,8 +431,14 @@ Respond with valid JSON only:`;
     }
   }
 
-  private buildEnhancedContext(topic: string, context?: string, refinedIntention?: string, searchResults?: SearchResult[]): string {
+  private buildEnhancedContext(topic: string, context?: string, refinedIntention?: string, searchResults?: SearchResult[], domainAnalysis?: DomainAnalysis): string {
     let enhancedContext = '';
+    
+    if (domainAnalysis) {
+      enhancedContext += `Technical Domain: ${domainAnalysis.primaryDomain.name}\n`;
+      enhancedContext += `Expertise Level: ${domainAnalysis.expertiseLevel}\n`;
+      enhancedContext += `Authority Focus: Building expertise and credibility in ${domainAnalysis.primaryDomain.name}\n`;
+    }
     
     if (refinedIntention) {
       enhancedContext += `User's refined intention: ${refinedIntention}\n`;
@@ -411,51 +450,93 @@ Respond with valid JSON only:`;
     
     // Add search results context
     if (searchResults && searchResults.length > 0) {
-      enhancedContext += `\nCurrent web research findings:\n`;
+      enhancedContext += `\nCurrent industry insights and research:\n`;
       searchResults.forEach((result, index) => {
         enhancedContext += `${index + 1}. ${result.title}: ${result.snippet}\n`;
       });
       enhancedContext += '\n';
     }
     
-    enhancedContext += `Focus: Database systems, SQL queries, performance optimization, data modeling, and practical implementation examples with current best practices.`;
+    enhancedContext += `Target Audience: B2B SaaS entrepreneurs and technical professionals seeking to build authority and share expertise through high-quality content.`;
     
     return enhancedContext;
   }
 
-  private buildEnhancedPrompt(topic: string, enhancedContext: string): string {
+  private buildAuthorityBuildingPrompt(topic: string, enhancedContext: string, domainAnalysis: DomainAnalysis, tweetCount: number): string {
     const cleanTopic = topic.replace(/^I want to write about /i, '').trim();
     
-    return `Create a comprehensive Twitter thread about "${cleanTopic}" specifically for database professionals and developers.
+    // Analyze content strategy for code enhancements
+    const enhancement = this.contentEnhancementService.analyzeContentStrategy(topic, domainAnalysis.primaryDomain.id, enhancedContext, tweetCount);
+    const codeInstructions = this.contentEnhancementService.generateVisualContentInstructions(enhancement);
+    
+    return `Create a compelling Twitter thread about "${cleanTopic}" that builds technical authority and showcases expertise.
 
 ENHANCED CONTEXT:
 ${enhancedContext}
 
-CRITICAL FORMAT REQUIREMENTS - FOLLOW EXACTLY:
-1. Generate EXACTLY 6 tweets, no more, no less
+CRITICAL SUCCESS FACTORS:
+1. HOOK WITHIN 10 SECONDS: The first tweet must grab attention immediately and show clear value
+2. AUTHORITY BUILDING: Each tweet should demonstrate deep expertise and professional credibility
+3. ACTIONABLE INSIGHTS: Provide specific, implementable advice that professionals can use
+4. PROFESSIONAL VALUE: Help readers build their own expertise and advance their careers
+5. PRACTICAL EXAMPLES: Use code examples to demonstrate technical depth
+
+${codeInstructions}
+
+FORMAT REQUIREMENTS - FOLLOW EXACTLY:
+1. Generate EXACTLY ${tweetCount} tweets, no more, no less
 2. Each tweet MUST start with "TWEET:" (all caps)
-3. Each tweet MUST be numbered 1/6, 2/6, 3/6, 4/6, 5/6, 6/6
+3. Each tweet MUST be numbered 1/${tweetCount}, 2/${tweetCount}, 3/${tweetCount}, etc.
 4. Each tweet MUST be under 280 characters
-5. NO markdown formatting (no **, *, etc.)
-6. Each tweet on its own line
-7. Include practical SQL examples and current best practices
+5. Each tweet on its own line
 
-CONTENT REQUIREMENTS:
-- Incorporate current web research findings and latest best practices from the context above
-- Include practical SQL examples, database concepts, and real-world scenarios
-- Use engaging emojis (🔥, ⚡, 💡, 🧵, 📊, 🔧, 🔒, 💾, ⚖️, 🎯, 📈)
-- Focus on actionable insights and practical implementation
-- Target audience: Database administrators, developers, data engineers
-- Reference current trends and up-to-date information when available
+CODE CONTENT STRATEGY: ${enhancement.visualContentStrategy}
+${enhancement.shouldIncludeCode ? '- Include relevant code examples with backticks for inline code' : ''}
 
-EXACT FORMAT EXAMPLE:
-TWEET: 1/6 🧵 Database isolation levels explained: Your secret weapon against data corruption in high-concurrency apps ⚡ Let's explore the latest approaches that industry experts recommend 🔒
-TWEET: 2/6 💡 READ UNCOMMITTED: Fastest but dangerous! Allows dirty reads. Recent studies show 40% performance boost but high risk. Use only for analytics: SELECT * FROM orders WHERE status = 'pending';
-TWEET: 3/6 ✅ READ COMMITTED: Default for most databases. Prevents dirty reads, allows phantom reads. Good balance for OLTP systems. PostgreSQL and MySQL default. Perfect for e-commerce applications 📊
-TWEET: 4/6 🔒 REPEATABLE READ: Locks read data until transaction ends. Prevents dirty and non-repeatable reads. Higher consistency but potential deadlocks. Example: START TRANSACTION; SELECT * FROM accounts WHERE id = 1;
-TWEET: 5/6 🎯 SERIALIZABLE: Highest isolation level. Complete transaction isolation. Slowest performance but ACID compliant. Use for financial systems: SET TRANSACTION ISOLATION LEVEL SERIALIZABLE;
-TWEET: 6/6 🚀 Best practices 2024: Use READ COMMITTED for most apps, SERIALIZABLE for critical data, monitor lock contention with pg_stat_activity. Choose based on consistency vs performance needs 📈 #DatabasePerformance
+CONTENT STRUCTURE:
+- Tweet 1: Compelling hook with immediate value proposition (${domainAnalysis.suggestedHook})
+- Tweet 2-${tweetCount-1}: Deep insights, practical examples, code samples, and expert-level knowledge
+- Tweet ${tweetCount}: Call to action for engagement and authority building
 
-Now generate exactly 6 tweets for "${cleanTopic}" following this EXACT format:`;
+AUTHORITY-BUILDING ELEMENTS TO INCLUDE:
+- Specific metrics, numbers, or results where relevant
+- Industry best practices and current trends (from search results)
+- Expert-level insights that distinguish professionals from beginners
+- Real-world examples and case studies
+- Code snippets that demonstrate technical depth
+- Forward-looking perspectives on technology trends
+
+ENGAGEMENT OPTIMIZATION:
+- Use compelling language that demonstrates expertise
+- Include relevant emojis for visual appeal
+- End with questions or calls to action that encourage professional discussion
+- Reference current industry developments when applicable
+
+Example structure for ${domainAnalysis.primaryDomain.name}:
+TWEET: 1/${tweetCount} ${domainAnalysis.suggestedHook} 🧵 [specific metric or surprising insight] ⬇️
+TWEET: 2/${tweetCount} 💡 [Expert insight #1]: [Specific example with code if applicable] \`code sample\` This is why [authority statement]
+TWEET: 3/${tweetCount} 🔧 [Expert insight #2]: [Practical implementation] Most developers miss this because [expert perspective]
+${tweetCount > 3 ? `TWEET: 4/${tweetCount} 📊 [Data/metrics/case study]: [Specific numbers or results] Here's how industry leaders approach this...` : ''}
+${tweetCount > 4 ? `TWEET: 5/${tweetCount} 🚀 [Advanced technique/future trend]: [Forward-looking insight with technical example] This separates senior professionals from the rest` : ''}
+TWEET: ${tweetCount}/${tweetCount} 💬 What's your experience with [topic]? Share your insights below! RT if this helped level up your ${domainAnalysis.primaryDomain.name.toLowerCase()} game 🔥
+
+Now generate exactly ${tweetCount} authority-building tweets for "${cleanTopic}" following this EXACT format:`;
+  }
+
+  // Validate tweet count within allowed range
+  private validateTweetCount(count: number): number {
+    const tweetCount = Math.floor(Number(count));
+    
+    if (isNaN(tweetCount) || tweetCount < 1) {
+      console.warn(`Invalid tweet count ${count}, using default: 6`);
+      return 6;
+    }
+    
+    if (tweetCount > 20) {
+      console.warn(`Tweet count ${count} exceeds maximum 20, using 20`);
+      return 20;
+    }
+    
+    return tweetCount;
   }
 } 

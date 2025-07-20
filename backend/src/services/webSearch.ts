@@ -6,21 +6,21 @@ export interface SearchResult {
 
 export class WebSearchService {
   
-  // Main search method with multi-strategy approach
-  async searchWeb(topic: string, refinedIntention?: string): Promise<SearchResult[]> {
+  // Main search method with multi-strategy approach for any technical domain
+  async searchWeb(topic: string, domain?: string, refinedIntention?: string): Promise<SearchResult[]> {
     try {
-      console.log('Starting multi-strategy web search for:', topic);
+      console.log('Starting multi-strategy web search for:', topic, 'Domain:', domain);
       
       // Strategy 1: Try main topic terms
       const mainQuery = this.extractKeyTerms(topic);
       console.log('Strategy 1 - Main query:', mainQuery);
       let results = await this.performDuckDuckGoSearch(mainQuery);
       
-      // Strategy 2: If no results, try broader database term
-      if (results.length === 0) {
-        const broadQuery = this.buildBroadDatabaseQuery(topic);
-        console.log('Strategy 2 - Broad query:', broadQuery);
-        results = await this.performDuckDuckGoSearch(broadQuery);
+      // Strategy 2: If no results, try domain-specific query
+      if (results.length === 0 && domain) {
+        const domainQuery = this.buildDomainSpecificQuery(topic, domain);
+        console.log('Strategy 2 - Domain query:', domainQuery);
+        results = await this.performDuckDuckGoSearch(domainQuery);
       }
       
       // Strategy 3: If still no results, try just the core concept
@@ -54,46 +54,62 @@ export class WebSearchService {
     return keyWords;
   }
 
-  private buildBroadDatabaseQuery(topic: string): string {
+  private buildDomainSpecificQuery(topic: string, domain: string): string {
     const cleanTopic = topic.replace(/^I want to write about /i, '').trim();
     
-    // Check for database-related terms and create broader queries
-    if (cleanTopic.toLowerCase().includes('index')) return 'database index';
-    if (cleanTopic.toLowerCase().includes('isolation')) return 'database isolation';
-    if (cleanTopic.toLowerCase().includes('query')) return 'SQL query';
-    if (cleanTopic.toLowerCase().includes('performance')) return 'database performance';
-    if (cleanTopic.toLowerCase().includes('optimization')) return 'database optimization';
-    if (cleanTopic.toLowerCase().includes('schema')) return 'database schema';
-    if (cleanTopic.toLowerCase().includes('transaction')) return 'database transaction';
-    if (cleanTopic.toLowerCase().includes('column')) return 'database column';
-    if (cleanTopic.toLowerCase().includes('table')) return 'database table';
-    if (cleanTopic.toLowerCase().includes('backup')) return 'database backup';
-    if (cleanTopic.toLowerCase().includes('migration')) return 'database migration';
-    if (cleanTopic.toLowerCase().includes('replication')) return 'database replication';
-    if (cleanTopic.toLowerCase().includes('security')) return 'database security';
+    // Domain-specific query builders
+    const domainMappings: { [key: string]: string } = {
+      'webdev': 'web development',
+      'architecture': 'software architecture',
+      'distributed-systems': 'distributed systems',
+      'devops': 'DevOps',
+      'ai-ml': 'machine learning',
+      'security': 'cybersecurity',
+      'mobile': 'mobile development',
+      'blockchain': 'blockchain',
+      'database': 'database'
+    };
+
+    const domainTerm = domainMappings[domain] || domain;
     
-    return 'database';
+    // Check for specific technical concepts and create broader queries
+    if (cleanTopic.toLowerCase().includes('performance')) return `${domainTerm} performance`;
+    if (cleanTopic.toLowerCase().includes('architecture')) return `${domainTerm} architecture`;
+    if (cleanTopic.toLowerCase().includes('best practices')) return `${domainTerm} best practices`;
+    if (cleanTopic.toLowerCase().includes('optimization')) return `${domainTerm} optimization`;
+    if (cleanTopic.toLowerCase().includes('security')) return `${domainTerm} security`;
+    if (cleanTopic.toLowerCase().includes('testing')) return `${domainTerm} testing`;
+    if (cleanTopic.toLowerCase().includes('deployment')) return `${domainTerm} deployment`;
+    if (cleanTopic.toLowerCase().includes('scaling')) return `${domainTerm} scaling`;
+    
+    return `${domainTerm} ${cleanTopic}`.substring(0, 50); // Limit query length
   }
 
   private extractCoreConceptOnly(topic: string): string {
     const cleanTopic = topic.replace(/^I want to write about /i, '').trim().toLowerCase();
     
-    // Extract just the core database concept
-    if (cleanTopic.includes('index')) return 'index';
-    if (cleanTopic.includes('isolation')) return 'isolation';
-    if (cleanTopic.includes('query')) return 'query';
-    if (cleanTopic.includes('performance')) return 'performance';
-    if (cleanTopic.includes('optimization')) return 'optimization';
-    if (cleanTopic.includes('schema')) return 'schema';
-    if (cleanTopic.includes('transaction')) return 'transaction';
-    if (cleanTopic.includes('column')) return 'column';
-    if (cleanTopic.includes('table')) return 'table';
-    if (cleanTopic.includes('backup')) return 'backup';
-    if (cleanTopic.includes('migration')) return 'migration';
-    if (cleanTopic.includes('replication')) return 'replication';
+    // Extract just the core technical concept
+    if (cleanTopic.includes('react')) return 'react';
+    if (cleanTopic.includes('kubernetes')) return 'kubernetes';
+    if (cleanTopic.includes('docker')) return 'docker';
+    if (cleanTopic.includes('microservices')) return 'microservices';
+    if (cleanTopic.includes('api')) return 'API';
+    if (cleanTopic.includes('database')) return 'database';
+    if (cleanTopic.includes('machine learning')) return 'machine learning';
+    if (cleanTopic.includes('ai')) return 'AI';
+    if (cleanTopic.includes('blockchain')) return 'blockchain';
     if (cleanTopic.includes('security')) return 'security';
+    if (cleanTopic.includes('performance')) return 'performance';
+    if (cleanTopic.includes('architecture')) return 'architecture';
+    if (cleanTopic.includes('testing')) return 'testing';
+    if (cleanTopic.includes('devops')) return 'DevOps';
+    if (cleanTopic.includes('cloud')) return 'cloud';
+    if (cleanTopic.includes('aws')) return 'AWS';
+    if (cleanTopic.includes('azure')) return 'Azure';
+    if (cleanTopic.includes('gcp')) return 'GCP';
     
-    return 'database';
+    // Default to "software development" for technical topics
+    return 'software development';
   }
 
   private async performDuckDuckGoSearch(query: string): Promise<SearchResult[]> {

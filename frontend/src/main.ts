@@ -12,10 +12,21 @@ interface ThreadResponse {
   generatedAt: string;
 }
 
+interface TechnicalDomain {
+  id: string;
+  name: string;
+  description: string;
+  expertPersona: string;
+  searchTerms: string[];
+  authorityKeywords: string[];
+}
+
 interface IntentionAnalysis {
   intention: string;
-  isDatabaseTopic: boolean;
-  suggestedContext?: string;
+  isTechnicalTopic: boolean;
+  domain?: TechnicalDomain;
+  suggestedHook?: string;
+  expertiseLevel?: 'beginner' | 'intermediate' | 'expert';
   fallbackToOriginal?: boolean;
 }
 
@@ -30,6 +41,19 @@ class ThreadGenerator {
     this.showStep(1);
   }
 
+  private async checkBackendHealth() {
+    try {
+      const response = await fetch(`${this.apiUrl}/api/health`);
+      if (!response.ok) {
+        throw new Error(`Backend health check failed with status: ${response.status}`);
+      }
+      console.log('Backend is healthy');
+    } catch (error) {
+      console.error('Backend health check failed:', error);
+      this.showError('Backend server is not responding. Please ensure it is running on port 3001.');
+    }
+  }
+
   private initializeEventListeners() {
     // Step 1: Topic input form
     const form = document.getElementById('threadForm') as HTMLFormElement;
@@ -38,8 +62,29 @@ class ThreadGenerator {
       this.analyzeTopic();
     });
 
-    // Skip to original flow
+    // Topic input - show/hide skip button based on content
+    const topicInput = document.getElementById('topic') as HTMLInputElement;
     const skipBtn = document.getElementById('skipToOriginalBtn') as HTMLButtonElement;
+    
+    topicInput.addEventListener('input', (e) => {
+      const value = (e.target as HTMLInputElement).value.trim();
+      if (value.length > 0) {
+        skipBtn.classList.remove('hidden');
+      } else {
+        skipBtn.classList.add('hidden');
+      }
+    });
+
+    // Tweet count slider
+    const tweetCountSlider = document.getElementById('tweetCount') as HTMLInputElement;
+    const tweetCountDisplay = document.getElementById('tweetCountDisplay') as HTMLSpanElement;
+    
+    tweetCountSlider.addEventListener('input', (e) => {
+      const value = (e.target as HTMLInputElement).value;
+      tweetCountDisplay.textContent = value;
+    });
+
+    // Skip to original flow
     skipBtn.addEventListener('click', () => {
       this.generateOriginalThread();
     });
@@ -90,6 +135,16 @@ class ThreadGenerator {
     switch (step) {
       case 1:
         document.getElementById('inputStep')?.classList.remove('hidden');
+        // Check topic input and show/hide skip button accordingly
+        const topicInput = document.getElementById('topic') as HTMLInputElement;
+        const skipBtn = document.getElementById('skipToOriginalBtn') as HTMLButtonElement;
+        if (topicInput && skipBtn) {
+          if (topicInput.value.trim().length > 0) {
+            skipBtn.classList.remove('hidden');
+          } else {
+            skipBtn.classList.add('hidden');
+          }
+        }
         break;
       case 2:
         document.getElementById('intentionStep')?.classList.remove('hidden');
@@ -199,27 +254,55 @@ class ThreadGenerator {
   }
 
   private displayIntentionAnalysis(analysis: IntentionAnalysis) {
-    const intentionText = document.getElementById('intentionText');
-    const nonDatabaseWarning = document.getElementById('nonDatabaseWarning');
+    // Display domain information
+    const domainText = document.getElementById('domainText');
+    const expertiseText = document.getElementById('expertiseText');
     
+    if (domainText && analysis.domain) {
+      domainText.textContent = analysis.domain.name;
+    }
+    
+    if (expertiseText && analysis.expertiseLevel) {
+      const expertiseLabels = {
+        'beginner': 'Beginner-friendly content',
+        'intermediate': 'Intermediate-level insights',
+        'expert': 'Expert-level deep dive'
+      };
+      expertiseText.textContent = expertiseLabels[analysis.expertiseLevel];
+    }
+    
+    // Display intention
+    const intentionText = document.getElementById('intentionText');
     if (intentionText) {
       intentionText.textContent = analysis.intention;
     }
     
-    // Show warning if not a database topic
-    if (!analysis.isDatabaseTopic && nonDatabaseWarning) {
-      nonDatabaseWarning.classList.remove('hidden');
-    } else if (nonDatabaseWarning) {
-      nonDatabaseWarning.classList.add('hidden');
+    // Display hook strategy
+    const hookText = document.getElementById('hookText');
+    if (hookText && analysis.suggestedHook) {
+      hookText.textContent = analysis.suggestedHook;
     }
     
-    // Pre-fill suggested context if available
-    if (analysis.suggestedContext) {
+    // Show warning if not a technical topic
+    const nonTechnicalWarning = document.getElementById('nonTechnicalWarning');
+    if (!analysis.isTechnicalTopic && nonTechnicalWarning) {
+      nonTechnicalWarning.classList.remove('hidden');
+    } else if (nonTechnicalWarning) {
+      nonTechnicalWarning.classList.add('hidden');
+    }
+    
+    // Pre-fill suggested refinement if available
+    if (analysis.suggestedHook) {
       const refinedIntention = document.getElementById('refinedIntention') as HTMLTextAreaElement;
       if (refinedIntention) {
-        refinedIntention.placeholder = `Suggestion: ${analysis.suggestedContext}`;
+        refinedIntention.placeholder = `You can refine the focus, add specific examples, or adjust the authority angle...`;
       }
     }
+  }
+
+  private getTweetCount(): number {
+    const tweetCountSlider = document.getElementById('tweetCount') as HTMLInputElement;
+    return parseInt(tweetCountSlider.value) || 6;
   }
 
   private async generateEnhancedThread() {
@@ -231,6 +314,7 @@ class ThreadGenerator {
     const topic = topicInput.value.trim();
     const context = contextInput.value.trim();
     const refinedIntention = refinedIntentionInput.value.trim();
+    const tweetCount = this.getTweetCount();
 
     // Show enhanced loading state with web search indication
     this.setButtonLoading(generateBtn, true, 'Researching latest info... 🔍');
@@ -245,7 +329,8 @@ class ThreadGenerator {
         body: JSON.stringify({
           topic,
           context: context || undefined,
-          refinedIntention: refinedIntention || undefined
+          refinedIntention: refinedIntention || undefined,
+          tweetCount
         }),
       });
 
@@ -265,7 +350,7 @@ class ThreadGenerator {
       console.error('Error generating enhanced thread:', error);
       this.showError(`Failed to generate enhanced thread: ${error instanceof Error ? error.message : 'Unknown error'}. Please try again or use the original flow.`);
     } finally {
-      this.setButtonLoading(generateBtn, false, 'Generate Enhanced Thread 🚀');
+      this.setButtonLoading(generateBtn, false, 'Generate Authority Thread 🚀');
     }
   }
 
@@ -275,6 +360,7 @@ class ThreadGenerator {
 
     const topic = topicInput.value.trim();
     const context = contextInput.value.trim();
+    const tweetCount = this.getTweetCount();
 
     if (!topic) {
       alert('Please enter a topic');
@@ -293,7 +379,8 @@ class ThreadGenerator {
         body: JSON.stringify({
           topic,
           context: context || undefined,
-          tone: 'professional'
+          tone: 'professional',
+          tweetCount
         }),
       });
 
@@ -329,10 +416,18 @@ class ThreadGenerator {
     const topicInput = document.getElementById('topic') as HTMLInputElement;
     const contextInput = document.getElementById('context') as HTMLTextAreaElement;
     const refinedIntentionInput = document.getElementById('refinedIntention') as HTMLTextAreaElement;
+    const tweetCountSlider = document.getElementById('tweetCount') as HTMLInputElement;
+    const tweetCountDisplay = document.getElementById('tweetCountDisplay') as HTMLSpanElement;
+    const skipBtn = document.getElementById('skipToOriginalBtn') as HTMLButtonElement;
     
     topicInput.value = '';
     contextInput.value = '';
     refinedIntentionInput.value = '';
+    tweetCountSlider.value = '6';
+    tweetCountDisplay.textContent = '6';
+    
+    // Hide skip button since topic is cleared
+    skipBtn.classList.add('hidden');
     
     // Reset state
     this.currentThread = [];
@@ -347,10 +442,17 @@ class ThreadGenerator {
     console.log('displayThread called with:', threadData);
     const resultsDiv = document.getElementById('threadResults') as HTMLDivElement;
     const tweetsContainer = document.getElementById('tweetsContainer') as HTMLDivElement;
+    const threadSubtitle = document.getElementById('threadSubtitle') as HTMLParagraphElement;
 
     if (!resultsDiv || !tweetsContainer) {
       console.error('Could not find results div or tweets container');
       return;
+    }
+
+    // Update subtitle with tweet count
+    if (threadSubtitle) {
+      const tweetCount = threadData.tweets.length;
+      threadSubtitle.textContent = `✨ ${tweetCount} ${tweetCount === 1 ? 'tweet' : 'tweets'} optimized for professional credibility and expertise showcase`;
     }
 
     // Clear previous results
@@ -369,96 +471,60 @@ class ThreadGenerator {
 
   private createTweetCard(tweet: Tweet, index: number): HTMLElement {
     const card = document.createElement('div');
-    card.className = 'tweet-card';
+    card.className = 'bg-white border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow';
     
-    // Create the structure without innerHTML to avoid escaping issues
+    // Process tweet content for inline code
+    const processedContent = this.processTextContent(tweet.content);
+    
     card.innerHTML = `
-      <div class="flex items-start justify-between mb-3">
+      <div class="flex justify-between items-start mb-3">
         <div class="flex items-center space-x-2">
-          <div class="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center">
-            <span class="text-white text-sm font-medium">${tweet.position}</span>
+          <div class="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
+            <span class="text-blue-600 font-medium">${index + 1}</span>
           </div>
-          <span class="text-sm text-gray-500">Tweet ${tweet.position} of ${tweet.totalTweets}</span>
+          <div>
+            <div class="font-medium text-gray-900">Tweet ${tweet.position}/${tweet.totalTweets}</div>
+            <div class="text-sm text-gray-500">${tweet.characterCount} characters</div>
+          </div>
         </div>
-        <div class="flex items-center space-x-2">
-          <span class="char-counter text-sm ${this.getCharCounterClass(tweet.characterCount)}">${tweet.characterCount}/280</span>
-          <button class="copy-btn p-1 text-gray-500 hover:text-blue-600 transition-colors" data-tweet-id="${tweet.id}">
-            📋
-          </button>
-        </div>
-      </div>
-      
-      <div class="tweet-content relative">
-        <textarea 
-          class="tweet-textarea w-full p-3 pr-12 border border-gray-200 rounded-lg resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
-          rows="3"
-          data-tweet-id="${tweet.id}"
-        ></textarea>
         <button 
-          class="copy-textarea-btn absolute top-2 right-2 p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-all duration-200 group"
-          data-tweet-id="${tweet.id}"
-          title="Copy tweet"
+          class="copy-tweet-btn px-3 py-1 text-sm bg-gray-100 text-gray-700 rounded hover:bg-gray-200 transition-colors"
+          data-tweet-content="${tweet.content.replace(/"/g, '&quot;')}"
         >
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
-          </svg>
-          <span class="absolute -top-8 left-1/2 transform -translate-x-1/2 bg-gray-800 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
-            Copy tweet
-          </span>
+          📋 Copy
         </button>
       </div>
       
-      <div class="mt-3 flex items-center justify-between">
-        <div class="flex items-center space-x-2 text-sm text-gray-500">
-          <span>💬 Thread</span>
-          <span>🔄 Retweet</span>
-          <span>❤️ Like</span>
-        </div>
-        <button class="regenerate-btn text-sm text-blue-600 hover:text-blue-700 font-medium" data-tweet-id="${tweet.id}">
-          🔄 Regenerate
-        </button>
+      <div class="tweet-content text-gray-800 leading-relaxed">
+        ${processedContent}
       </div>
     `;
-    
-    // Set textarea content safely
-    const textarea = card.querySelector('.tweet-textarea') as HTMLTextAreaElement;
-    if (textarea) {
-      textarea.value = tweet.content;
-    }
 
-    // Add event listeners
-    const copyBtn = card.querySelector('.copy-btn') as HTMLButtonElement;
-    const copyTextareaBtn = card.querySelector('.copy-textarea-btn') as HTMLButtonElement;
-    const regenerateBtn = card.querySelector('.regenerate-btn') as HTMLButtonElement;
-
-    textarea.addEventListener('input', () => {
-      this.updateCharacterCount(textarea, tweet.id);
-    });
-
-    // Add keyboard shortcut for copying (Ctrl+C / Cmd+C)
-    textarea.addEventListener('keydown', (e) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'c' && textarea.selectionStart === textarea.selectionEnd) {
-        // Only trigger custom copy if no text is selected (otherwise use native copy)
-        e.preventDefault();
-        this.copyTweetWithFeedback(tweet.id, copyTextareaBtn);
+    // Add copy functionality
+    const copyBtn = card.querySelector('.copy-tweet-btn') as HTMLButtonElement;
+    copyBtn.addEventListener('click', async () => {
+      const originalText = copyBtn.textContent;
+      try {
+        await navigator.clipboard.writeText(tweet.content);
+        copyBtn.textContent = '✅ Copied!';
+        copyBtn.classList.add('bg-green-100', 'text-green-700');
+        
+        setTimeout(() => {
+          copyBtn.textContent = originalText;
+          copyBtn.classList.remove('bg-green-100', 'text-green-700');
+        }, 2000);
+      } catch (error) {
+        console.error('Failed to copy tweet:', error);
+        copyBtn.textContent = '❌ Failed';
       }
     });
 
-    // Copy button in header
-    copyBtn.addEventListener('click', () => {
-      this.copyTweetWithFeedback(tweet.id, copyBtn);
-    });
-
-    // Copy button on textarea
-    copyTextareaBtn.addEventListener('click', () => {
-      this.copyTweetWithFeedback(tweet.id, copyTextareaBtn);
-    });
-
-    regenerateBtn.addEventListener('click', () => {
-      this.regenerateTweet(tweet.id, index);
-    });
-
     return card;
+  }
+
+  private processTextContent(content: string): string {
+    // Process inline code with backticks
+    return content.replace(/`([^`]+)`/g, '<code class="inline-code">$1</code>');
   }
 
   private getCharCounterClass(count: number): string {
@@ -543,6 +609,7 @@ class ThreadGenerator {
     const originalText = copyAllBtn.textContent;
     
     const allTweets = this.currentThread.map(tweet => tweet.content).join('\n\n');
+    const tweetCount = this.currentThread.length;
     
     try {
       // Show loading state
@@ -555,7 +622,7 @@ class ThreadGenerator {
       copyAllBtn.textContent = '✅ Copied!';
       copyAllBtn.classList.add('bg-green-100', 'text-green-700');
       
-      this.showToast(`All ${this.currentThread.length} tweets copied to clipboard! 📋`, 'success');
+      this.showToast(`All ${tweetCount} ${tweetCount === 1 ? 'tweet' : 'tweets'} copied to clipboard! 📋`, 'success');
       
       // Reset button after 2 seconds
       setTimeout(() => {
