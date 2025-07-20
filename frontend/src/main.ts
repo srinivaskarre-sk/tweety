@@ -12,10 +12,21 @@ interface ThreadResponse {
   generatedAt: string;
 }
 
+interface TechnicalDomain {
+  id: string;
+  name: string;
+  description: string;
+  expertPersona: string;
+  searchTerms: string[];
+  authorityKeywords: string[];
+}
+
 interface IntentionAnalysis {
   intention: string;
-  isDatabaseTopic: boolean;
-  suggestedContext?: string;
+  isTechnicalTopic: boolean;
+  domain?: TechnicalDomain;
+  suggestedHook?: string;
+  expertiseLevel?: 'beginner' | 'intermediate' | 'expert';
   fallbackToOriginal?: boolean;
 }
 
@@ -199,25 +210,48 @@ class ThreadGenerator {
   }
 
   private displayIntentionAnalysis(analysis: IntentionAnalysis) {
-    const intentionText = document.getElementById('intentionText');
-    const nonDatabaseWarning = document.getElementById('nonDatabaseWarning');
+    // Display domain information
+    const domainText = document.getElementById('domainText');
+    const expertiseText = document.getElementById('expertiseText');
     
+    if (domainText && analysis.domain) {
+      domainText.textContent = analysis.domain.name;
+    }
+    
+    if (expertiseText && analysis.expertiseLevel) {
+      const expertiseLabels = {
+        'beginner': 'Beginner-friendly content',
+        'intermediate': 'Intermediate-level insights',
+        'expert': 'Expert-level deep dive'
+      };
+      expertiseText.textContent = expertiseLabels[analysis.expertiseLevel];
+    }
+    
+    // Display intention
+    const intentionText = document.getElementById('intentionText');
     if (intentionText) {
       intentionText.textContent = analysis.intention;
     }
     
-    // Show warning if not a database topic
-    if (!analysis.isDatabaseTopic && nonDatabaseWarning) {
-      nonDatabaseWarning.classList.remove('hidden');
-    } else if (nonDatabaseWarning) {
-      nonDatabaseWarning.classList.add('hidden');
+    // Display hook strategy
+    const hookText = document.getElementById('hookText');
+    if (hookText && analysis.suggestedHook) {
+      hookText.textContent = analysis.suggestedHook;
     }
     
-    // Pre-fill suggested context if available
-    if (analysis.suggestedContext) {
+    // Show warning if not a technical topic
+    const nonTechnicalWarning = document.getElementById('nonTechnicalWarning');
+    if (!analysis.isTechnicalTopic && nonTechnicalWarning) {
+      nonTechnicalWarning.classList.remove('hidden');
+    } else if (nonTechnicalWarning) {
+      nonTechnicalWarning.classList.add('hidden');
+    }
+    
+    // Pre-fill suggested refinement if available
+    if (analysis.suggestedHook) {
       const refinedIntention = document.getElementById('refinedIntention') as HTMLTextAreaElement;
       if (refinedIntention) {
-        refinedIntention.placeholder = `Suggestion: ${analysis.suggestedContext}`;
+        refinedIntention.placeholder = `You can refine the focus, add specific examples, or adjust the authority angle...`;
       }
     }
   }
